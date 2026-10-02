@@ -1,13 +1,50 @@
 const pool = require('../config/database');
 
 async function getAllVentas() {
-  const [rows] = await pool.query('SELECT * FROM ventas ORDER BY id_venta ASC');
+  const [rows] = await pool.query(
+    `SELECT id_venta, usuario_id, numero_factura, fecha_venta, subtotal, descuento,
+            total, estado, observaciones, forma_pago, fecha_creacion, fecha_actualizacion
+     FROM ventas ORDER BY id_venta ASC`
+  );
   return rows;
 }
 
 async function getVentaById(id) {
-  const [rows] = await pool.query('SELECT * FROM ventas WHERE id_venta = ?', [id]);
-  return rows[0] || null;
+  const [rows] = await pool.query(
+    `SELECT id_venta, usuario_id, numero_factura, fecha_venta, subtotal, descuento,
+            total, estado, observaciones, forma_pago, fecha_creacion, fecha_actualizacion
+     FROM ventas WHERE id_venta = ?`,
+    [id]
+  );
+  const venta = rows[0];
+
+  if (!venta) {
+    return null;
+  }
+
+  const [detalles] = await pool.query(
+    `SELECT
+       dv.id_detalle_venta,
+       dv.venta_id,
+       dv.producto_id,
+       p.nombre AS nombre_producto,
+       p.codigo_sku,
+       dv.cantidad,
+       dv.precio_unitario,
+       dv.subtotal,
+       dv.descuento,
+       dv.total_linea
+     FROM detalle_ventas dv
+     LEFT JOIN productos p ON p.id_producto = dv.producto_id
+     WHERE dv.venta_id = ?
+     ORDER BY dv.id_detalle_venta ASC`,
+    [id]
+  );
+
+  return {
+    ...venta,
+    detalles,
+  };
 }
 
 async function createVenta(data) {
@@ -16,7 +53,6 @@ async function createVenta(data) {
     numero_factura,
     fecha_venta,
     subtotal,
-    impuesto,
     descuento,
     total,
     estado,
@@ -30,19 +66,17 @@ async function createVenta(data) {
       numero_factura,
       fecha_venta,
       subtotal,
-      impuesto,
       descuento,
       total,
       estado,
       observaciones,
       forma_pago
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       usuario_id,
       numero_factura ?? null,
       fecha_venta,
       subtotal ?? 0,
-      impuesto ?? 0,
       descuento ?? 0,
       total ?? 0,
       estado ?? 'pendiente',
@@ -57,7 +91,6 @@ async function createVenta(data) {
     numero_factura: numero_factura ?? null,
     fecha_venta,
     subtotal: subtotal ?? 0,
-    impuesto: impuesto ?? 0,
     descuento: descuento ?? 0,
     total: total ?? 0,
     estado: estado ?? 'pendiente',
@@ -88,11 +121,6 @@ async function updateVenta(id, data) {
   if (data.subtotal !== undefined) {
     fields.push('subtotal = ?');
     values.push(data.subtotal);
-  }
-
-  if (data.impuesto !== undefined) {
-    fields.push('impuesto = ?');
-    values.push(data.impuesto);
   }
 
   if (data.descuento !== undefined) {

@@ -150,7 +150,6 @@ const createCompra = async (proveedorId, usuarioId, overrides = {}) => {
     fecha_compra: '2026-09-14',
     fecha_recepcion: '2026-09-15',
     subtotal: 100.00,
-    impuesto: 16.00,
     total: 116.00,
     estado: 'pendiente',
     observaciones: 'compra de prueba',
@@ -168,7 +167,6 @@ const createVenta = async (usuarioId, overrides = {}) => {
     numero_factura: makeUnique('venta'),
     fecha_venta: '2026-09-14',
     subtotal: 100.00,
-    impuesto: 16.00,
     descuento: 0.00,
     total: 116.00,
     estado: 'pendiente',
@@ -189,7 +187,6 @@ const createDetalleCompra = async (compraId, productoId, overrides = {}) => {
     cantidad: 2,
     costo_unitario: 50.00,
     subtotal: 100.00,
-    impuesto: 16.00,
     total_linea: 116.00,
     observaciones: 'detalle compra prueba',
     ...overrides,
@@ -208,7 +205,6 @@ const createDetalleVenta = async (ventaId, productoId, overrides = {}) => {
     precio_unitario: 100.00,
     subtotal: 100.00,
     descuento: 0.00,
-    impuesto: 16.00,
     total_linea: 116.00,
     ...overrides,
   };
@@ -758,6 +754,38 @@ describe('Backend CRUD endpoints', () => {
     await request(app).delete(`/api/usuarios/${user.id_usuario}`);
   });
 
+  test('purchase endpoints reject the parcial state', async () => {
+    const role = await createRole();
+    const user = await createUsuario(role.id_rol);
+    const provider = await createProveedor();
+    const purchase = await createCompra(provider.id_proveedor, user.id_usuario);
+
+    try {
+      const createRes = await request(app).post('/api/compras').send({
+        proveedor_id: provider.id_proveedor,
+        usuario_id: user.id_usuario,
+        fecha_compra: '2026-09-14',
+        estado: 'parcial',
+      });
+      expect(createRes.status).toBe(400);
+
+      const updateRes = await request(app)
+        .put(`/api/compras/${purchase.id_compra}`)
+        .send({ estado: 'parcial' });
+      expect(updateRes.status).toBe(400);
+
+      const transactionalRes = await request(app)
+        .post('/api/compras/transaccional')
+        .send({ estado: 'parcial' });
+      expect(transactionalRes.status).toBe(400);
+    } finally {
+      await request(app).delete(`/api/compras/${purchase.id_compra}`);
+      await request(app).delete(`/api/proveedores/${provider.id_proveedor}`);
+      await request(app).delete(`/api/usuarios/${user.id_usuario}`);
+      await request(app).delete(`/api/roles/${role.id_rol}`);
+    }
+  });
+
   test('POST /api/compras/transaccional creates a received purchase and updates inventory', async () => {
     const role = await createRole();
     const user = await createUsuario(role.id_rol);
@@ -853,12 +881,47 @@ describe('Backend CRUD endpoints', () => {
     const purchase = await createCompra(provider.id_proveedor, user.id_usuario);
     const res = await request(app)
       .put(`/api/compras/${purchase.id_compra}`)
-      .send({ estado: 'recibida', observaciones: 'actualizado' });
+      .send({ observaciones: 'actualizado' });
 
     expect(res.status).toBe(200);
+    expect(res.body.observaciones).toBe('actualizado');
     await request(app).delete(`/api/compras/${purchase.id_compra}`);
     await request(app).delete(`/api/proveedores/${provider.id_proveedor}`);
     await request(app).delete(`/api/usuarios/${user.id_usuario}`);
+  });
+
+  test('PUT /api/compras/:id rejects state transitions', async () => {
+    const role = await createRole();
+    const user = await createUsuario(role.id_rol);
+    const provider = await createProveedor();
+    const pendingPurchase = await createCompra(provider.id_proveedor, user.id_usuario);
+    const receivedPurchase = await createCompra(provider.id_proveedor, user.id_usuario, { estado: 'recibida' });
+
+    try {
+      const pendingToReceived = await request(app)
+        .put(`/api/compras/${pendingPurchase.id_compra}`)
+        .send({ estado: 'recibida' });
+      const pendingToAnnulled = await request(app)
+        .put(`/api/compras/${pendingPurchase.id_compra}`)
+        .send({ estado: 'anulada' });
+      const receivedToPending = await request(app)
+        .put(`/api/compras/${receivedPurchase.id_compra}`)
+        .send({ estado: 'pendiente' });
+      const receivedToAnnulled = await request(app)
+        .put(`/api/compras/${receivedPurchase.id_compra}`)
+        .send({ estado: 'anulada' });
+
+      expect(pendingToReceived.status).toBe(400);
+      expect(pendingToAnnulled.status).toBe(400);
+      expect(receivedToPending.status).toBe(400);
+      expect(receivedToAnnulled.status).toBe(400);
+    } finally {
+      await request(app).delete(`/api/compras/${pendingPurchase.id_compra}`);
+      await request(app).delete(`/api/compras/${receivedPurchase.id_compra}`);
+      await request(app).delete(`/api/proveedores/${provider.id_proveedor}`);
+      await request(app).delete(`/api/usuarios/${user.id_usuario}`);
+      await request(app).delete(`/api/roles/${role.id_rol}`);
+    }
   });
 
   test('DELETE /api/compras/:id deletes a purchase', async () => {

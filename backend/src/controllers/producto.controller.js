@@ -67,6 +67,15 @@ async function updateProducto(req, res) {
       return res.status(404).json({ message: 'Producto no encontrado' });
     }
 
+    if (
+      req.body.stock_seguridad !== undefined &&
+      (!Number.isInteger(req.body.stock_seguridad) || req.body.stock_seguridad < 0)
+    ) {
+      return res.status(400).json({
+        message: 'El campo stock_seguridad debe ser un entero mayor o igual a 0',
+      });
+    }
+
     const updated = await productoModel.updateProducto(req.params.id, req.body);
 
     if (!updated) {
@@ -76,7 +85,9 @@ async function updateProducto(req, res) {
     const productoActualizado = await productoModel.getProductoById(req.params.id);
     return res.status(200).json(productoActualizado);
   } catch (error) {
-    return res.status(500).json({ message: 'Error al actualizar producto', error: error.message });
+    return res.status(error.statusCode || 500).json({
+      message: error.message || 'Error al actualizar producto',
+    });
   }
 }
 
@@ -90,13 +101,17 @@ async function deleteProducto(req, res) {
 
     const result = await productoModel.deleteProducto(req.params.id);
 
+    if (result.desactivado) {
+      return res.status(409).json({ message: result.message });
+    }
+
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: 'Producto no encontrado' });
     }
 
     return res.status(200).json({ message: 'Producto eliminado correctamente' });
   } catch (error) {
-    return res.status(500).json({ message: 'Error al eliminar producto', error: error.message });
+    return res.status(error.statusCode || 500).json({ message: 'Error al eliminar producto', error: error.message });
   }
 }
 

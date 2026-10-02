@@ -5,12 +5,10 @@ function calcularTotalesCompra(detalles) {
     return acumulador + cantidad * costoUnitario;
   }, 0);
 
-  const impuesto = 0;
-  const total = subtotal + impuesto;
+  const total = subtotal;
 
   return {
     subtotal: Number(subtotal.toFixed(2)),
-    impuesto: Number(impuesto.toFixed(2)),
     total: Number(total.toFixed(2)),
   };
 }
@@ -23,13 +21,11 @@ function calcularTotalesVenta(detalles) {
   }, 0);
 
   const descuento = 0;
-  const impuesto = 0;
-  const total = subtotal + impuesto - descuento;
+  const total = subtotal - descuento;
 
   return {
     subtotal: Number(subtotal.toFixed(2)),
     descuento: Number(descuento.toFixed(2)),
-    impuesto: Number(impuesto.toFixed(2)),
     total: Number(total.toFixed(2)),
   };
 }

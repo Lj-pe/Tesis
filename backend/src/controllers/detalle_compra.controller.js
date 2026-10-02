@@ -31,7 +31,6 @@ async function createDetalleCompra(req, res) {
       cantidad,
       costo_unitario,
       subtotal,
-      impuesto,
       total_linea,
       observaciones,
     } = req.body;
@@ -52,7 +51,6 @@ async function createDetalleCompra(req, res) {
       cantidad,
       costo_unitario,
       subtotal,
-      impuesto,
       total_linea,
       observaciones,
     });

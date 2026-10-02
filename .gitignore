@@ -1,0 +1,26 @@
+@"
+# Dependencias
+node_modules/
+frontend/node_modules/
+frontend_backup/node_modules/
+
+# Builds
+dist/
+frontend/dist/
+frontend_backup/dist/
+
+# Variables de entorno
+.env
+.env.*
+!.env.example
+
+# Respaldos locales
+frontend_backup/
+
+# Logs
+*.log
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+"@ | Set-Content .gitignore

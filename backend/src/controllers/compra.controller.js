@@ -1,5 +1,9 @@
 const compraModel = require('../models/compra.model');
-const { createCompraTransaccional: createCompraTransaccionalService } = require('../services/compraTransaccional.service');
+const proveedorModel = require('../models/proveedor.model');
+const {
+  createCompraTransaccional: createCompraTransaccionalService,
+  cambiarEstadoCompraTransaccional: cambiarEstadoCompraTransaccionalService,
+} = require('../services/compraTransaccional.service');
 
 async function getAllCompras(req, res) {
   try {
@@ -33,7 +37,6 @@ async function createCompra(req, res) {
       fecha_compra,
       fecha_recepcion,
       subtotal,
-      impuesto,
       total,
       estado,
       observaciones,
@@ -45,6 +48,15 @@ async function createCompra(req, res) {
       });
     }
 
+    const proveedor = await proveedorModel.getProveedorById(proveedor_id);
+    if (proveedor && proveedor.estado !== 'activo') {
+      return res.status(400).json({ message: 'La compra requiere un proveedor activo' });
+    }
+
+    if (estado === 'parcial') {
+      return res.status(400).json({ message: 'El estado parcial no está permitido' });
+    }
+
     const compra = await compraModel.createCompra({
       proveedor_id,
       usuario_id,
@@ -52,7 +64,6 @@ async function createCompra(req, res) {
       fecha_compra,
       fecha_recepcion,
       subtotal,
-      impuesto,
       total,
       estado,
       observaciones,
@@ -70,6 +81,12 @@ async function updateCompra(req, res) {
 
     if (!compra) {
       return res.status(404).json({ message: 'Compra no encontrada' });
+    }
+
+    if (req.body.estado !== undefined && req.body.estado !== compra.estado) {
+      return res.status(400).json({
+        message: 'El estado de compra solo puede cambiarse mediante el flujo transaccional',
+      });
     }
 
     const updated = await compraModel.updateCompra(req.params.id, req.body);
@@ -123,11 +140,35 @@ async function createCompraTransaccional(req, res) {
   }
 }
 
+async function cambiarEstadoCompraTransaccional(req, res) {
+  try {
+    if (!req.user?.id_usuario) {
+      return res.status(401).json({ message: 'Usuario no autenticado' });
+    }
+
+    const { estado } = req.body;
+    const result = await cambiarEstadoCompraTransaccionalService(
+      req.params.id,
+      estado,
+      req.user.id_usuario
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    return res.status(statusCode).json({
+      message: error.message || 'Error al cambiar estado de compra',
+      error: error.message,
+    });
+  }
+}
+
 module.exports = {
   getAllCompras,
   getCompraById,
   createCompra,
   createCompraTransaccional,
+  cambiarEstadoCompraTransaccional,
   updateCompra,
   deleteCompra,
 };

@@ -1,5 +1,8 @@
 const ventaModel = require('../models/venta.model');
-const { createVentaTransaccional: createVentaTransaccionalService } = require('../services/ventaTransaccional.service');
+const {
+  createVentaTransaccional: createVentaTransaccionalService,
+  cambiarEstadoVentaTransaccional: cambiarEstadoVentaTransaccionalService,
+} = require('../services/ventaTransaccional.service');
 
 async function getAllVentas(req, res) {
   try {
@@ -31,7 +34,6 @@ async function createVenta(req, res) {
       numero_factura,
       fecha_venta,
       subtotal,
-      impuesto,
       descuento,
       total,
       estado,
@@ -53,7 +55,6 @@ async function createVenta(req, res) {
       numero_factura,
       fecha_venta,
       subtotal,
-      impuesto,
       descuento,
       total,
       estado,
@@ -147,11 +148,34 @@ async function createVentaTransaccional(req, res) {
   }
 }
 
+async function cambiarEstadoVentaTransaccional(req, res) {
+  try {
+    if (!req.user?.id_usuario) {
+      return res.status(401).json({ message: 'Usuario no autenticado' });
+    }
+
+    const result = await cambiarEstadoVentaTransaccionalService(
+      req.params.id,
+      req.body.estado,
+      req.user.id_usuario
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    return res.status(statusCode).json({
+      message: error.message || 'Error al cambiar estado de venta',
+      error: error.message,
+    });
+  }
+}
+
 module.exports = {
   getAllVentas,
   getVentaById,
   createVenta,
   createVentaTransaccional,
+  cambiarEstadoVentaTransaccional,
   updateVenta,
   deleteVenta,
 };

@@ -1,13 +1,52 @@
 const pool = require('../config/database');
 
 async function getAllCompras() {
-  const [rows] = await pool.query('SELECT * FROM compras ORDER BY id_compra ASC');
+  const [rows] = await pool.query(
+    `SELECT id_compra, proveedor_id, usuario_id, numero_factura, fecha_compra,
+            fecha_recepcion, subtotal, total, estado, observaciones,
+            fecha_creacion, fecha_actualizacion
+     FROM compras ORDER BY id_compra ASC`
+  );
   return rows;
 }
 
 async function getCompraById(id) {
-  const [rows] = await pool.query('SELECT * FROM compras WHERE id_compra = ?', [id]);
-  return rows[0] || null;
+  const [rows] = await pool.query(
+    `SELECT id_compra, proveedor_id, usuario_id, numero_factura, fecha_compra,
+            fecha_recepcion, subtotal, total, estado, observaciones,
+            fecha_creacion, fecha_actualizacion
+     FROM compras WHERE id_compra = ?`,
+    [id]
+  );
+  const compra = rows[0];
+
+  if (!compra) {
+    return null;
+  }
+
+  const [detalles] = await pool.query(
+    `SELECT
+       dc.id_detalle_compra,
+       dc.compra_id,
+       dc.producto_id,
+       p.nombre AS nombre_producto,
+       dc.cantidad,
+       dc.costo_unitario,
+       dc.subtotal,
+       dc.total_linea,
+       COALESCE(dc.total_linea, dc.cantidad * dc.costo_unitario) AS importe,
+       dc.observaciones
+     FROM detalle_compras dc
+     LEFT JOIN productos p ON p.id_producto = dc.producto_id
+     WHERE dc.compra_id = ?
+     ORDER BY dc.id_detalle_compra ASC`,
+    [id]
+  );
+
+  return {
+    ...compra,
+    detalles,
+  };
 }
 
 async function createCompra(data) {
@@ -18,7 +57,6 @@ async function createCompra(data) {
     fecha_compra,
     fecha_recepcion,
     subtotal,
-    impuesto,
     total,
     estado,
     observaciones,
@@ -32,11 +70,10 @@ async function createCompra(data) {
       fecha_compra,
       fecha_recepcion,
       subtotal,
-      impuesto,
       total,
       estado,
       observaciones
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       proveedor_id,
       usuario_id,
@@ -44,7 +81,6 @@ async function createCompra(data) {
       fecha_compra,
       fecha_recepcion ?? null,
       subtotal ?? 0,
-      impuesto ?? 0,
       total ?? 0,
       estado ?? 'pendiente',
       observaciones ?? null,
@@ -59,7 +95,6 @@ async function createCompra(data) {
     fecha_compra,
     fecha_recepcion: fecha_recepcion ?? null,
     subtotal: subtotal ?? 0,
-    impuesto: impuesto ?? 0,
     total: total ?? 0,
     estado: estado ?? 'pendiente',
     observaciones: observaciones ?? null,
@@ -98,11 +133,6 @@ async function updateCompra(id, data) {
   if (data.subtotal !== undefined) {
     fields.push('subtotal = ?');
     values.push(data.subtotal);
-  }
-
-  if (data.impuesto !== undefined) {
-    fields.push('impuesto = ?');
-    values.push(data.impuesto);
   }
 
   if (data.total !== undefined) {

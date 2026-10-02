@@ -7,6 +7,7 @@ router.get('/api/compras', compraController.getAllCompras);
 router.get('/api/compras/:id', compraController.getCompraById);
 router.post('/api/compras', compraController.createCompra);
 router.post('/api/compras/transaccional', compraController.createCompraTransaccional);
+router.post('/api/compras/:id/estado', compraController.cambiarEstadoCompraTransaccional);
 router.put('/api/compras/:id', compraController.updateCompra);
 router.delete('/api/compras/:id', compraController.deleteCompra);
 

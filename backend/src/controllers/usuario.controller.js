@@ -72,6 +72,13 @@ async function updateUsuario(req, res) {
     }
 
     const payload = { ...req.body };
+    const esPropioUsuario = Number(req.user?.id_usuario) === Number(req.params.id);
+    const cambiaRol = payload.rol_id !== undefined && Number(payload.rol_id) !== Number(usuario.rol_id);
+    const cambiaEstado = payload.estado !== undefined && payload.estado !== usuario.estado;
+
+    if (esPropioUsuario && (cambiaRol || cambiaEstado)) {
+      return res.status(400).json({ message: 'No puedes cambiar tu propio rol o estado' });
+    }
 
     if (payload.password) {
       payload.password_hash = await bcrypt.hash(payload.password, 10);

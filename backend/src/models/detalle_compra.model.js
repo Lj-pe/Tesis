@@ -1,12 +1,21 @@
 const pool = require('../config/database');
 
 async function getAllDetalleCompras() {
-  const [rows] = await pool.query('SELECT * FROM detalle_compras ORDER BY id_detalle_compra ASC');
+  const [rows] = await pool.query(
+    `SELECT id_detalle_compra, compra_id, producto_id, cantidad, costo_unitario,
+            subtotal, total_linea, observaciones, fecha_creacion
+     FROM detalle_compras ORDER BY id_detalle_compra ASC`
+  );
   return rows;
 }
 
 async function getDetalleCompraById(id) {
-  const [rows] = await pool.query('SELECT * FROM detalle_compras WHERE id_detalle_compra = ?', [id]);
+  const [rows] = await pool.query(
+    `SELECT id_detalle_compra, compra_id, producto_id, cantidad, costo_unitario,
+            subtotal, total_linea, observaciones, fecha_creacion
+     FROM detalle_compras WHERE id_detalle_compra = ?`,
+    [id]
+  );
   return rows[0] || null;
 }
 
@@ -17,7 +26,6 @@ async function createDetalleCompra(data) {
     cantidad,
     costo_unitario,
     subtotal,
-    impuesto,
     total_linea,
     observaciones,
   } = data;
@@ -29,17 +37,15 @@ async function createDetalleCompra(data) {
       cantidad,
       costo_unitario,
       subtotal,
-      impuesto,
       total_linea,
       observaciones
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       compra_id,
       producto_id,
       cantidad,
       costo_unitario,
       subtotal ?? 0,
-      impuesto ?? 0,
       total_linea ?? 0,
       observaciones ?? null,
     ]
@@ -52,7 +58,6 @@ async function createDetalleCompra(data) {
     cantidad,
     costo_unitario,
     subtotal: subtotal ?? 0,
-    impuesto: impuesto ?? 0,
     total_linea: total_linea ?? 0,
     observaciones: observaciones ?? null,
   };
@@ -85,11 +90,6 @@ async function updateDetalleCompra(id, data) {
   if (data.subtotal !== undefined) {
     fields.push('subtotal = ?');
     values.push(data.subtotal);
-  }
-
-  if (data.impuesto !== undefined) {
-    fields.push('impuesto = ?');
-    values.push(data.impuesto);
   }
 
   if (data.total_linea !== undefined) {

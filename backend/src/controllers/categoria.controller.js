@@ -59,7 +59,9 @@ async function updateCategoria(req, res) {
     const categoriaActualizada = await categoriaModel.getCategoriaById(req.params.id);
     return res.status(200).json(categoriaActualizada);
   } catch (error) {
-    return res.status(500).json({ message: 'Error al actualizar categoria', error: error.message });
+    return res.status(error.statusCode || 500).json({
+      message: error.message || 'Error al actualizar categoria',
+    });
   }
 }
 
@@ -79,7 +81,7 @@ async function deleteCategoria(req, res) {
 
     return res.status(200).json({ message: 'Categoria eliminada correctamente' });
   } catch (error) {
-    return res.status(500).json({ message: 'Error al eliminar categoria', error: error.message });
+    return res.status(error.statusCode || 500).json({ message: 'Error al eliminar categoria', error: error.message });
   }
 }
 
