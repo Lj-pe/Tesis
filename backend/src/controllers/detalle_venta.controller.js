@@ -30,8 +30,6 @@ async function createDetalleVenta(req, res) {
       producto_id,
       cantidad,
       precio_unitario,
-      subtotal,
-      descuento,
       total_linea,
     } = req.body;
 
@@ -50,8 +48,6 @@ async function createDetalleVenta(req, res) {
       producto_id,
       cantidad,
       precio_unitario,
-      subtotal,
-      descuento,
       total_linea,
     });
 

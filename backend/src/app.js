@@ -14,6 +14,7 @@ const detalleCompraRoutes = require('./routes/detalle_compra.routes');
 const ventaRoutes = require('./routes/venta.routes');
 const detalleVentaRoutes = require('./routes/detalle_venta.routes');
 const movimientoInventarioRoutes = require('./routes/movimiento_inventario.routes');
+const reportesRoutes = require('./routes/reportes.routes');
 const authMiddleware = require('./middleware/authMiddleware');
 
 const app = express();
@@ -37,14 +38,15 @@ app.get('/api/health', async (req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use(reportesRoutes);
 app.use(authMiddleware);
 app.use(categoriaRoutes);
 app.use(productoRoutes);
 app.use(inventarioRoutes);
 app.use(rolRoutes);
 app.use(prediccionRoutes);
-app.use(proveedorRoutes);
-app.use(compraRoutes);
+app.use('/api/proveedores', proveedorRoutes);
+app.use('/api/compras', compraRoutes);
 app.use(usuarioRoutes);
 app.use(detalleCompraRoutes);
 app.use(ventaRoutes);

@@ -1,7 +1,33 @@
 const pool = require('../config/database');
 const { calcularTotalesCompra } = require('./totales.service');
-const { obtenerInventarioPorProducto, actualizarStock } = require('./inventarioTransaccional.service');
+const { actualizarStock } = require('./inventarioTransaccional.service');
 const { registrarEntrada } = require('./movimientosInventario.service');
+
+async function obtenerInventarioParaRecepcion(connection, productoId, cantidad) {
+  const [rows] = await connection.query(
+    'SELECT * FROM inventarios WHERE producto_id = ? LIMIT 1 FOR UPDATE',
+    [productoId]
+  );
+  const inventario = rows[0];
+
+  if (!inventario) {
+    throw Object.assign(new Error(`No existe inventario para el producto ${productoId}`), {
+      statusCode: 400,
+    });
+  }
+
+  if (
+    inventario.stock_maximo !== null &&
+    inventario.stock_maximo !== undefined &&
+    Number(inventario.stock_actual) + Number(cantidad) > Number(inventario.stock_maximo)
+  ) {
+    throw Object.assign(new Error(`La recepción supera el stock máximo del producto ${productoId}`), {
+      statusCode: 400,
+    });
+  }
+
+  return inventario;
+}
 
 async function createCompraTransaccional(payload, usuarioEjecutorId) {
   if (payload.estado === 'parcial') {
@@ -121,19 +147,18 @@ async function createCompraTransaccional(payload, usuarioEjecutorId) {
       );
 
       if (payload.estado === 'recibida') {
-        const inventario = await obtenerInventarioPorProducto(connection, detalle.producto_id);
+        const cantidad = Number(detalle.cantidad);
+        const inventario = await obtenerInventarioParaRecepcion(
+          connection,
+          detalle.producto_id,
+          cantidad
+        );
 
-        if (!inventario) {
-          throw Object.assign(new Error(`No existe inventario para el producto ${detalle.producto_id}`), {
-            statusCode: 400,
-          });
-        }
-
-        await actualizarStock(connection, inventario.id_inventario, Number(detalle.cantidad));
+        await actualizarStock(connection, inventario.id_inventario, cantidad);
 
         await registrarEntrada(connection, {
           inventario_id: inventario.id_inventario,
-          cantidad: Number(detalle.cantidad),
+          cantidad,
           compra_id: compraId,
           usuario_id: usuarioEjecutorId || payload.usuario_id,
           motivo: 'Compra transaccional',
@@ -226,19 +251,18 @@ async function cambiarEstadoCompraTransaccional(compraId, estadoDestino, usuario
       }
 
       for (const detalle of detalleRows) {
-        const inventario = await obtenerInventarioPorProducto(connection, detalle.producto_id);
+        const cantidad = Number(detalle.cantidad);
+        const inventario = await obtenerInventarioParaRecepcion(
+          connection,
+          detalle.producto_id,
+          cantidad
+        );
 
-        if (!inventario) {
-          throw Object.assign(new Error(`No existe inventario para el producto ${detalle.producto_id}`), {
-            statusCode: 400,
-          });
-        }
-
-        await actualizarStock(connection, inventario.id_inventario, Number(detalle.cantidad));
+        await actualizarStock(connection, inventario.id_inventario, cantidad);
 
         await registrarEntrada(connection, {
           inventario_id: inventario.id_inventario,
-          cantidad: Number(detalle.cantidad),
+          cantidad,
           compra_id: compraId,
           usuario_id: usuarioEjecutorId,
           motivo: 'Recepción de compra',

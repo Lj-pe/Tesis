@@ -1,4 +1,5 @@
 const rolModel = require('../models/rol.model');
+const permisoModel = require('../models/permiso.model');
 
 const ESTADOS_ROL_VALIDOS = ['activo', 'inactivo'];
 
@@ -64,6 +65,60 @@ async function getRolById(req, res) {
     return res.status(200).json(rol);
   } catch (error) {
     return res.status(500).json({ message: 'Error al obtener rol', error: error.message });
+  }
+}
+
+async function getPermisosByRolId(req, res) {
+  try {
+    const rol = await rolModel.getRolById(req.params.id);
+
+    if (!rol) {
+      return res.status(404).json({ message: 'Rol no encontrado' });
+    }
+
+    const permisos = await permisoModel.getPermisosByRolId(req.params.id);
+    return res.status(200).json(permisos.map(({ modulo, acceso }) => ({ modulo, acceso: Boolean(acceso) })));
+  } catch (error) {
+    return res.status(500).json({ message: 'Error al obtener permisos del rol', error: error.message });
+  }
+}
+
+async function guardarPermisosByRolId(req, res) {
+  try {
+    const rol = await rolModel.getRolById(req.params.id);
+
+    if (!rol) {
+      return res.status(404).json({ message: 'Rol no encontrado' });
+    }
+
+    if (rol.nombre.trim().toLowerCase() === 'administrador') {
+      return res.status(403).json({ message: 'Los permisos del Administrador no pueden modificarse' });
+    }
+
+    const permisos = req.body?.permisos;
+    const modulos = permisoModel.MODULOS_PERMITIDOS;
+    const permisosValidos = Array.isArray(permisos)
+      && permisos.length === modulos.length
+      && permisos.every((permiso) => (
+        permiso
+        && modulos.includes(permiso.modulo)
+        && typeof permiso.acceso === 'boolean'
+      ))
+      && new Set(permisos.map((permiso) => permiso.modulo)).size === modulos.length;
+
+    if (!permisosValidos) {
+      return res.status(400).json({
+        message: 'Se requiere un permiso booleano único para cada módulo disponible',
+      });
+    }
+
+    await permisoModel.guardarPermisosByRolId(req.params.id, permisos);
+    const permisosActualizados = await permisoModel.getPermisosByRolId(req.params.id);
+    return res.status(200).json(
+      permisosActualizados.map(({ modulo, acceso }) => ({ modulo, acceso: Boolean(acceso) }))
+    );
+  } catch (error) {
+    return res.status(500).json({ message: 'Error al guardar permisos del rol', error: error.message });
   }
 }
 
@@ -153,6 +208,8 @@ async function deleteRol(req, res) {
 module.exports = {
   getAllRoles,
   getRolById,
+  getPermisosByRolId,
+  guardarPermisosByRolId,
   createRol,
   updateRol,
   deleteRol,

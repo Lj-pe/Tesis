@@ -40,7 +40,7 @@ function Usuarios() {
   };
 
   useEffect(() => {
-    cargarDatos();
+    Promise.resolve().then(cargarDatos);
   }, []);
 
   const abrirCrear = () => {
@@ -148,7 +148,7 @@ function Usuarios() {
           <tbody>
             {isLoading ? (
               <tr><td colSpan="6">Cargando usuarios...</td></tr>
-            ) : usuariosVisibles.length === 0 ? (
+            ) : !loadError && usuariosVisibles.length === 0 ? (
               <tr><td colSpan="6">No se encontraron usuarios.</td></tr>
             ) : usuariosVisibles.map((usuario) => (
               <tr key={usuario.id_usuario}>

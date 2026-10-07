@@ -41,19 +41,15 @@ async function createVentaTransaccional(payload, usuarioEjecutorId) {
         usuario_id,
         numero_factura,
         fecha_venta,
-        subtotal,
-        descuento,
         total,
         estado,
         observaciones,
         forma_pago
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         usuarioEjecutorId,
         payload.numero_factura || null,
         payload.fecha_venta,
-        totales.subtotal,
-        totales.descuento,
         totales.total,
         payload.estado || 'pendiente',
         payload.observaciones || null,
@@ -86,9 +82,7 @@ async function createVentaTransaccional(payload, usuarioEjecutorId) {
         });
       }
 
-      const subtotalLinea = Number(detalle.cantidad) * Number(detalle.precio_unitario);
-      const descuentoLinea = 0;
-      const totalLinea = subtotalLinea - descuentoLinea;
+      const totalLinea = Number(detalle.cantidad) * Number(detalle.precio_unitario);
 
       await connection.query(
         `INSERT INTO detalle_ventas (
@@ -96,17 +90,13 @@ async function createVentaTransaccional(payload, usuarioEjecutorId) {
           producto_id,
           cantidad,
           precio_unitario,
-          subtotal,
-          descuento,
           total_linea
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)` ,
+        ) VALUES (?, ?, ?, ?, ?)` ,
         [
           ventaId,
           detalle.producto_id,
           detalle.cantidad,
           detalle.precio_unitario,
-          subtotalLinea,
-          descuentoLinea,
           totalLinea,
         ]
       );
@@ -130,7 +120,7 @@ async function createVentaTransaccional(payload, usuarioEjecutorId) {
     await connection.commit();
 
     const [ventaRows] = await connection.query(
-      `SELECT id_venta, usuario_id, numero_factura, fecha_venta, subtotal, descuento,
+      `SELECT id_venta, usuario_id, numero_factura, fecha_venta,
               total, estado, observaciones, forma_pago, fecha_creacion, fecha_actualizacion
        FROM ventas WHERE id_venta = ?`,
       [ventaId]
@@ -167,7 +157,7 @@ async function cambiarEstadoVentaTransaccional(ventaId, estadoDestino, usuarioEj
     }
 
     const [ventaRows] = await connection.query(
-      'SELECT * FROM ventas WHERE id_venta = ? FOR UPDATE',
+      'SELECT id_venta, estado FROM ventas WHERE id_venta = ? FOR UPDATE',
       [ventaId]
     );
     const venta = ventaRows[0];
@@ -241,7 +231,9 @@ async function cambiarEstadoVentaTransaccional(ventaId, estadoDestino, usuarioEj
     await connection.commit();
 
     const [ventaActualizadaRows] = await pool.query(
-      'SELECT * FROM ventas WHERE id_venta = ?',
+      `SELECT id_venta, usuario_id, numero_factura, fecha_venta, total,
+              estado, observaciones, forma_pago, fecha_creacion, fecha_actualizacion
+       FROM ventas WHERE id_venta = ?`,
       [ventaId]
     );
 

@@ -1,4 +1,5 @@
 const authService = require('../services/auth.service');
+const permisoModel = require('../models/permiso.model');
 
 async function login(req, res) {
   try {
@@ -22,7 +23,20 @@ async function login(req, res) {
 }
 
 async function getMe(req, res) {
-  return res.status(200).json(req.user);
+  try {
+    const permisosGuardados = await permisoModel.getPermisosByRolId(req.user.rol_id);
+    const permisosPorModulo = new Map(
+      permisosGuardados.map(({ modulo, acceso }) => [modulo, Boolean(acceso)])
+    );
+    const permisos = permisoModel.MODULOS_PERMITIDOS.map((modulo) => ({
+      modulo,
+      acceso: permisosPorModulo.get(modulo) ?? false,
+    }));
+
+    return res.status(200).json({ ...req.user, permisos });
+  } catch (error) {
+    return res.status(500).json({ message: 'Error al obtener permisos del usuario', error: error.message });
+  }
 }
 
 module.exports = {

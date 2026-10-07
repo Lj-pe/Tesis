@@ -38,21 +38,14 @@ function Reportes() {
   useEffect(() => {
     const cargarDatos = async () => {
       try {
-        const [ventas, compras, productos, inventarios, movimientos, detallesCompras] = await Promise.all([
-          apiClient.get("/ventas"),
-          apiClient.get("/compras"),
-          apiClient.get("/productos"),
-          apiClient.get("/inventarios"),
-          apiClient.get("/movimientos-inventario"),
-          apiClient.get("/detalle-compras"),
-        ]);
+        const reporte = await apiClient.get("/reportes/datos");
         setDatos({
-          ventas: Array.isArray(ventas) ? ventas : [],
-          compras: Array.isArray(compras) ? compras : [],
-          productos: Array.isArray(productos) ? productos : [],
-          inventarios: Array.isArray(inventarios) ? inventarios : [],
-          movimientos: Array.isArray(movimientos) ? movimientos : [],
-          detallesCompras: Array.isArray(detallesCompras) ? detallesCompras : [],
+          ventas: Array.isArray(reporte.ventas) ? reporte.ventas : [],
+          compras: Array.isArray(reporte.compras) ? reporte.compras : [],
+          productos: Array.isArray(reporte.productos) ? reporte.productos : [],
+          inventarios: Array.isArray(reporte.inventarios) ? reporte.inventarios : [],
+          movimientos: Array.isArray(reporte.movimientos) ? reporte.movimientos : [],
+          detallesCompras: Array.isArray(reporte.detallesCompras) ? reporte.detallesCompras : [],
         });
       } catch (error) {
         setLoadError(error.message || "No se pudieron cargar los reportes.");
@@ -226,19 +219,19 @@ function Reportes() {
       <div className="reportes-cards">
         <article className="reportes-card">
           <span className="reportes-card-icon reportes-icon-sales" aria-hidden="true">↗</span>
-          <div><span>Ventas del mes</span><strong>{isLoading ? "-" : dinero(reporte.totalVentas)}</strong><small>{isLoading ? "Cargando..." : `${reporte.unidadesVendidas} unidades vendidas`}</small></div>
+          <div><span>Ventas del mes</span><strong>{isLoading || loadError ? "-" : dinero(reporte.totalVentas)}</strong><small>{loadError ? "Datos no disponibles" : isLoading ? "Cargando..." : `${reporte.unidadesVendidas} unidades vendidas`}</small></div>
         </article>
         <article className="reportes-card">
           <span className="reportes-card-icon reportes-icon-purchases" aria-hidden="true">▱</span>
-          <div><span>Compras del mes</span><strong>{isLoading ? "-" : dinero(reporte.totalCompras)}</strong><small>{isLoading ? "Cargando..." : `${reporte.unidadesCompradas} unidades adquiridas`}</small></div>
+          <div><span>Compras del mes</span><strong>{isLoading || loadError ? "-" : dinero(reporte.totalCompras)}</strong><small>{loadError ? "Datos no disponibles" : isLoading ? "Cargando..." : `${reporte.unidadesCompradas} unidades adquiridas`}</small></div>
         </article>
         <article className="reportes-card">
           <span className="reportes-card-icon reportes-icon-top" aria-hidden="true">◆</span>
-          <div><span>Producto más vendido</span><strong>{isLoading ? "-" : reporte.productoMayorRotacion?.producto.nombre || "Sin datos"}</strong><small>{isLoading ? "Cargando..." : `${reporte.productoMayorRotacion?.cantidad || 0} unidades`}</small></div>
+          <div><span>Producto más vendido</span><strong>{isLoading || loadError ? "-" : reporte.productoMayorRotacion?.producto.nombre || "Sin datos"}</strong><small>{loadError ? "Datos no disponibles" : isLoading ? "Cargando..." : `${reporte.productoMayorRotacion?.cantidad || 0} unidades`}</small></div>
         </article>
         <article className="reportes-card">
           <span className="reportes-card-icon reportes-icon-low" aria-hidden="true">⊘</span>
-          <div><span>Menor rotación</span><strong>{isLoading ? "-" : reporte.productoMenorRotacion?.producto.nombre || "Sin datos"}</strong><small>{isLoading ? "Cargando..." : `${reporte.productoMenorRotacion?.cantidad || 0} unidades`}</small></div>
+          <div><span>Menor rotación</span><strong>{isLoading || loadError ? "-" : reporte.productoMenorRotacion?.producto.nombre || "Sin datos"}</strong><small>{loadError ? "Datos no disponibles" : isLoading ? "Cargando..." : `${reporte.productoMenorRotacion?.cantidad || 0} unidades`}</small></div>
         </article>
       </div>
 
@@ -249,7 +242,8 @@ function Reportes() {
             <table>
               <thead><tr><th>#</th><th>Producto</th><th>Unidades vendidas</th><th>Clasificación</th></tr></thead>
               <tbody>
-                {isLoading ? <tr><td colSpan="4" className="reportes-empty">Cargando rotación...</td></tr>
+                {loadError ? <tr><td colSpan="4" className="reportes-empty">Datos no disponibles por un error de carga.</td></tr>
+                  : isLoading ? <tr><td colSpan="4" className="reportes-empty">Cargando rotación...</td></tr>
                   : !reporte.hayRotacion || reporte.productosMayorRotacion.length === 0 ? <tr><td colSpan="4" className="reportes-empty">No hay ventas registradas en el período seleccionado.</td></tr>
                     : reporte.productosMayorRotacion.map(({ producto, cantidad }, index) => {
                       const clasificacion = reporte.clasificarRotacion(cantidad);
@@ -269,7 +263,8 @@ function Reportes() {
             <table className="reportes-low-table">
               <thead><tr><th>#</th><th>Producto</th><th>Unidades vendidas</th></tr></thead>
               <tbody>
-                {isLoading ? <tr><td colSpan="3" className="reportes-empty">Cargando rotación...</td></tr>
+                {loadError ? <tr><td colSpan="3" className="reportes-empty">Datos no disponibles por un error de carga.</td></tr>
+                  : isLoading ? <tr><td colSpan="3" className="reportes-empty">Cargando rotación...</td></tr>
                   : !reporte.hayRotacion || reporte.productosMenorRotacion.length === 0 ? <tr><td colSpan="3" className="reportes-empty">No hay ventas registradas en el período seleccionado.</td></tr>
                     : reporte.productosMenorRotacion.map(({ producto, cantidad }, index) => (
                       <tr key={producto.id_producto}><td>{index + 1}</td><td>{producto.nombre}</td><td>{cantidad}</td></tr>
@@ -283,7 +278,8 @@ function Reportes() {
       <section className="reportes-panel reportes-bottom">
         <div className="reportes-chart-panel">
           <header><span className="reportes-panel-icon reportes-panel-icon-blue">▥</span><div><h2>Ventas y compras por mes</h2><p>Comparación del monto total en el período seleccionado.</p></div></header>
-          {isLoading ? <p className="reportes-empty">Cargando gráfico...</p> : reporte.meses.length === 0 ? (
+          {loadError ? <p className="reportes-empty">Datos no disponibles por un error de carga.</p>
+            : isLoading ? <p className="reportes-empty">Cargando gráfico...</p> : reporte.meses.length === 0 ? (
             <p className="reportes-empty reportes-chart-empty">No hay ventas ni compras en el período seleccionado.</p>
           ) : <div className="reportes-chart-scroll">
             <div className="reportes-legend"><span><i className="ventas-dot" />Ventas</span><span><i className="compras-dot" />Compras</span></div>
@@ -333,7 +329,8 @@ function Reportes() {
 
         <aside className="reportes-observations">
           <header><span className="reportes-panel-icon reportes-observation-icon">✦</span><div><h2>Observaciones del período</h2><p>Información relevante según los datos seleccionados.</p></div></header>
-          {isLoading ? <p className="reportes-empty">Cargando observaciones...</p>
+          {loadError ? <p className="reportes-empty">Datos no disponibles por un error de carga.</p>
+            : isLoading ? <p className="reportes-empty">Cargando observaciones...</p>
             : !reporte.tieneDatos ? <p className="reportes-empty">Sin datos para el período seleccionado.</p>
               : reporte.observaciones.length === 0 ? <p className="reportes-empty">No hay observaciones disponibles para el período seleccionado.</p>
                 : <ul>{reporte.observaciones.map((observacion) => <li key={observacion}><span aria-hidden="true" />{observacion}</li>)}</ul>}

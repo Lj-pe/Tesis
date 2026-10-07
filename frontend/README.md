@@ -1,16 +1,41 @@
-# React + Vite
+# Frontend — Boutique Librería Bazar Alanis
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Aplicación web para la interfaz del sistema de gestión de Boutique Librería Bazar Alanis.
 
-Currently, two official plugins are available:
+## Tecnologías
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- React y React DOM
+- React Router para navegación
+- Vite para desarrollo y compilación
+- JavaScript, JSX y CSS
 
-## React Compiler
+## Requisitos
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- Node.js y npm
+- El backend del proyecto disponible para usar las funciones que requieren la API
 
-## Expanding the ESLint configuration
+## Instalación y comandos
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Ejecuta los comandos desde la carpeta `frontend/`:
+
+```bash
+npm install
+npm run dev
+npm run lint
+npm run build
+```
+
+- `npm run dev`: inicia el servidor de desarrollo de Vite.
+- `npm run lint`: ejecuta ESLint.
+- `npm run build`: genera la compilación de producción.
+
+## Módulos
+
+- Dashboard
+- Productos y Categorías
+- Inventario y Movimientos
+- Ventas y Compras
+- Proveedores
+- Usuarios y Roles
+- Reportes
+- Predicciones

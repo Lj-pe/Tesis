@@ -3,7 +3,7 @@ const pool = require('../config/database');
 async function getAllDetalleVentas() {
   const [rows] = await pool.query(
     `SELECT id_detalle_venta, venta_id, producto_id, cantidad, precio_unitario,
-            subtotal, descuento, total_linea, fecha_creacion
+            total_linea, fecha_creacion
      FROM detalle_ventas ORDER BY id_detalle_venta ASC`
   );
   return rows;
@@ -12,7 +12,7 @@ async function getAllDetalleVentas() {
 async function getDetalleVentaById(id) {
   const [rows] = await pool.query(
     `SELECT id_detalle_venta, venta_id, producto_id, cantidad, precio_unitario,
-            subtotal, descuento, total_linea, fecha_creacion
+            total_linea, fecha_creacion
      FROM detalle_ventas WHERE id_detalle_venta = ?`,
     [id]
   );
@@ -25,8 +25,6 @@ async function createDetalleVenta(data) {
     producto_id,
     cantidad,
     precio_unitario,
-    subtotal,
-    descuento,
     total_linea,
   } = data;
 
@@ -36,17 +34,13 @@ async function createDetalleVenta(data) {
       producto_id,
       cantidad,
       precio_unitario,
-      subtotal,
-      descuento,
       total_linea
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?)`,
     [
       venta_id,
       producto_id,
       cantidad,
       precio_unitario,
-      subtotal ?? 0,
-      descuento ?? 0,
       total_linea ?? 0,
     ]
   );
@@ -57,8 +51,6 @@ async function createDetalleVenta(data) {
     producto_id,
     cantidad,
     precio_unitario,
-    subtotal: subtotal ?? 0,
-    descuento: descuento ?? 0,
     total_linea: total_linea ?? 0,
   };
 }
@@ -85,16 +77,6 @@ async function updateDetalleVenta(id, data) {
   if (data.precio_unitario !== undefined) {
     fields.push('precio_unitario = ?');
     values.push(data.precio_unitario);
-  }
-
-  if (data.subtotal !== undefined) {
-    fields.push('subtotal = ?');
-    values.push(data.subtotal);
-  }
-
-  if (data.descuento !== undefined) {
-    fields.push('descuento = ?');
-    values.push(data.descuento);
   }
 
   if (data.total_linea !== undefined) {

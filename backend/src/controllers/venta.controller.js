@@ -33,8 +33,6 @@ async function createVenta(req, res) {
       usuario_id,
       numero_factura,
       fecha_venta,
-      subtotal,
-      descuento,
       total,
       estado,
       observaciones,
@@ -54,8 +52,6 @@ async function createVenta(req, res) {
       usuario_id,
       numero_factura,
       fecha_venta,
-      subtotal,
-      descuento,
       total,
       estado,
       observaciones,
@@ -78,15 +74,16 @@ async function createVenta(req, res) {
 
 async function updateVenta(req, res) {
   try {
+    if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'estado')) {
+      return res.status(400).json({
+        message: 'El estado debe cambiarse mediante POST /api/ventas/:id/estado',
+      });
+    }
+
     const venta = await ventaModel.getVentaById(req.params.id);
 
     if (!venta) {
       return res.status(404).json({ message: 'Venta no encontrada' });
-    }
-
-    const validEstados = ['pendiente', 'pagada', 'anulada', 'cancelada'];
-    if (req.body.estado && !validEstados.includes(req.body.estado)) {
-      return res.status(400).json({ message: 'El campo estado debe ser pendiente, pagada, anulada o cancelada' });
     }
 
     const updated = await ventaModel.updateVenta(req.params.id, req.body);

@@ -8,10 +8,122 @@ const makeUnique = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString
 let authToken = null;
 let seededUsername = null;
 let seededPassword = null;
+let seededUserId = null;
 let adminRoleId = null;
 let nonAdminRoleId = null;
 let nonAdminUser = null;
 let nonAdminToken = null;
+
+const createdIds = {
+  roles: new Set(),
+  usuarios: new Set(),
+  categorias: new Set(),
+  proveedores: new Set(),
+  productos: new Set(),
+  inventarios: new Set(),
+  compras: new Set(),
+  ventas: new Set(),
+  detalle_compras: new Set(),
+  detalle_ventas: new Set(),
+  movimientos_inventario: new Set(),
+  predicciones: new Set(),
+};
+
+const trackCreatedId = (table, id) => {
+  if (id !== undefined && id !== null) {
+    createdIds[table].add(Number(id));
+  }
+};
+
+const trackCreatedRecord = (table, record, idField) => {
+  trackCreatedId(table, record?.[idField]);
+  return record;
+};
+
+async function cleanupCreatedRecords() {
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const compraIds = [...createdIds.compras];
+    const ventaIds = [...createdIds.ventas];
+
+    if (compraIds.length > 0) {
+      const [details] = await connection.query(
+        'SELECT id_detalle_compra FROM detalle_compras WHERE compra_id IN (?)',
+        [compraIds]
+      );
+      const [movements] = await connection.query(
+        'SELECT id_movimiento FROM movimientos_inventario WHERE compra_id IN (?)',
+        [compraIds]
+      );
+      details.forEach(({ id_detalle_compra }) => trackCreatedId('detalle_compras', id_detalle_compra));
+      movements.forEach(({ id_movimiento }) => trackCreatedId('movimientos_inventario', id_movimiento));
+    }
+
+    if (ventaIds.length > 0) {
+      const [details] = await connection.query(
+        'SELECT id_detalle_venta FROM detalle_ventas WHERE venta_id IN (?)',
+        [ventaIds]
+      );
+      const [movements] = await connection.query(
+        'SELECT id_movimiento FROM movimientos_inventario WHERE venta_id IN (?)',
+        [ventaIds]
+      );
+      details.forEach(({ id_detalle_venta }) => trackCreatedId('detalle_ventas', id_detalle_venta));
+      movements.forEach(({ id_movimiento }) => trackCreatedId('movimientos_inventario', id_movimiento));
+    }
+
+    const deletionOrder = [
+      ['movimientos_inventario', 'id_movimiento'],
+      ['detalle_compras', 'id_detalle_compra'],
+      ['detalle_ventas', 'id_detalle_venta'],
+      ['predicciones', 'id_prediccion'],
+      ['compras', 'id_compra'],
+      ['ventas', 'id_venta'],
+      ['inventarios', 'id_inventario'],
+      ['productos', 'id_producto'],
+      ['categorias', 'id_categoria'],
+      ['proveedores', 'id_proveedor'],
+      ['usuarios', 'id_usuario'],
+      ['roles', 'id_rol'],
+    ];
+
+    for (const [table, idColumn] of deletionOrder) {
+      const ids = [...createdIds[table]];
+      if (ids.length > 0) {
+        await connection.query(
+          `DELETE FROM ${table} WHERE ${idColumn} IN (?)`,
+          [ids]
+        );
+      }
+    }
+
+    const remainingCounts = {};
+    for (const [table, idColumn] of deletionOrder) {
+      const ids = [...createdIds[table]];
+      if (ids.length > 0) {
+        const [rows] = await connection.query(
+          `SELECT COUNT(*) AS remaining FROM ${table} WHERE ${idColumn} IN (?)`,
+          [ids]
+        );
+        remainingCounts[table] = Number(rows[0].remaining);
+      }
+    }
+
+    if (Object.values(remainingCounts).some((remaining) => remaining > 0)) {
+      throw new Error(`Quedaron registros de prueba tras la limpieza: ${JSON.stringify(remainingCounts)}`);
+    }
+
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
 
 const request = (appInstance) => {
   const baseRequest = supertest(appInstance);
@@ -57,6 +169,7 @@ const createRole = async (overrides = {}) => {
   };
 
   const res = await request(app).post('/api/roles').send(payload);
+  trackCreatedRecord('roles', res.body, 'id_rol');
   expect(res.status).toBe(201);
   return res.body;
 };
@@ -70,6 +183,7 @@ const createCategoria = async (overrides = {}) => {
   };
 
   const res = await request(app).post('/api/categorias').send(payload);
+  trackCreatedRecord('categorias', res.body, 'id_categoria');
   expect(res.status).toBe(201);
   return res.body;
 };
@@ -87,6 +201,7 @@ const createProveedor = async (overrides = {}) => {
   };
 
   const res = await request(app).post('/api/proveedores').send(payload);
+  trackCreatedRecord('proveedores', res.body, 'id_proveedor');
   expect(res.status).toBe(201);
   return res.body;
 };
@@ -104,6 +219,7 @@ const createUsuario = async (roleId, overrides = {}) => {
   };
 
   const res = await request(app).post('/api/usuarios').send(payload);
+  trackCreatedRecord('usuarios', res.body, 'id_usuario');
   expect(res.status).toBe(201);
   return res.body;
 };
@@ -122,6 +238,7 @@ const createProducto = async (categoryId, overrides = {}) => {
   };
 
   const res = await request(app).post('/api/productos').send(payload);
+  trackCreatedRecord('productos', res.body, 'id_producto');
   expect(res.status).toBe(201);
   return res.body;
 };
@@ -138,6 +255,7 @@ const createInventario = async (productId, overrides = {}) => {
   };
 
   const res = await request(app).post('/api/inventarios').send(payload);
+  trackCreatedRecord('inventarios', res.body, 'id_inventario');
   expect(res.status).toBe(201);
   return res.body;
 };
@@ -157,6 +275,7 @@ const createCompra = async (proveedorId, usuarioId, overrides = {}) => {
   };
 
   const res = await request(app).post('/api/compras').send(payload);
+  trackCreatedRecord('compras', res.body, 'id_compra');
   expect(res.status).toBe(201);
   return res.body;
 };
@@ -166,8 +285,6 @@ const createVenta = async (usuarioId, overrides = {}) => {
     usuario_id: usuarioId,
     numero_factura: makeUnique('venta'),
     fecha_venta: '2026-09-14',
-    subtotal: 100.00,
-    descuento: 0.00,
     total: 116.00,
     estado: 'pendiente',
     observaciones: 'venta de prueba',
@@ -176,6 +293,7 @@ const createVenta = async (usuarioId, overrides = {}) => {
   };
 
   const res = await request(app).post('/api/ventas').send(payload);
+  trackCreatedRecord('ventas', res.body, 'id_venta');
   expect(res.status).toBe(201);
   return res.body;
 };
@@ -193,6 +311,7 @@ const createDetalleCompra = async (compraId, productoId, overrides = {}) => {
   };
 
   const res = await request(app).post('/api/detalle-compras').send(payload);
+  trackCreatedRecord('detalle_compras', res.body, 'id_detalle_compra');
   expect(res.status).toBe(201);
   return res.body;
 };
@@ -203,13 +322,12 @@ const createDetalleVenta = async (ventaId, productoId, overrides = {}) => {
     producto_id: productoId,
     cantidad: 1,
     precio_unitario: 100.00,
-    subtotal: 100.00,
-    descuento: 0.00,
     total_linea: 116.00,
     ...overrides,
   };
 
   const res = await request(app).post('/api/detalle-ventas').send(payload);
+  trackCreatedRecord('detalle_ventas', res.body, 'id_detalle_venta');
   expect(res.status).toBe(201);
   return res.body;
 };
@@ -227,6 +345,7 @@ const createMovimientoInventario = async (inventarioId, usuarioId, overrides = {
   };
 
   const res = await request(app).post('/api/movimientos-inventario').send(payload);
+  trackCreatedRecord('movimientos_inventario', res.body, 'id_movimiento');
   expect(res.status).toBe(201);
   return res.body;
 };
@@ -245,6 +364,7 @@ const createPrediccion = async (productoId, overrides = {}) => {
   };
 
   const res = await request(app).post('/api/predicciones').send(payload);
+  trackCreatedRecord('predicciones', res.body, 'id_prediccion');
   expect(res.status).toBe(201);
   return res.body;
 };
@@ -286,6 +406,8 @@ beforeAll(async () => {
       'activo',
     ]
   );
+  seededUserId = seedUserResult.insertId;
+  trackCreatedId('usuarios', seededUserId);
 
   const loginRes = await supertest(app).post('/api/auth/login').send({
     username: seededUsername,
@@ -302,6 +424,7 @@ beforeAll(async () => {
   );
 
   nonAdminRoleId = nonAdminRoleResult.insertId;
+  trackCreatedId('roles', nonAdminRoleId);
 
   const nonAdminUsername = makeUnique('usuario_no_admin');
   const nonAdminPassword = 'Password123!';
@@ -333,6 +456,7 @@ beforeAll(async () => {
     username: nonAdminUsername,
     password: nonAdminPassword,
   };
+  trackCreatedId('usuarios', nonAdminUser.id_usuario);
 
   const nonAdminLoginRes = await supertest(app).post('/api/auth/login').send({
     username: nonAdminUsername,
@@ -341,6 +465,14 @@ beforeAll(async () => {
 
   expect(nonAdminLoginRes.status).toBe(200);
   nonAdminToken = nonAdminLoginRes.body.token;
+});
+
+afterAll(async () => {
+  try {
+    await cleanupCreatedRecords();
+  } finally {
+    await pool.end();
+  }
 });
 
 describe('Authentication endpoints', () => {
@@ -454,6 +586,28 @@ describe('Authentication endpoints', () => {
       .set('Authorization', 'Bearer invalid-token');
 
     expect(res.status).toBe(401);
+  });
+  test('GET /api/reportes/datos rejects access without token', async () => {
+    const res = await supertest(app).get('/api/reportes/datos');
+
+    expect(res.status).toBe(401);
+  });
+
+  test('GET /api/reportes/datos rejects roles without Reportes module access', async () => {
+    const res = await supertest(app)
+      .get('/api/reportes/datos')
+      .set('Authorization', `Bearer ${nonAdminToken}`);
+
+    expect(res.status).toBe(403);
+  });
+
+  test('GET /api/reportes/datos returns report collections for an authorized user', async () => {
+    const res = await request(app).get('/api/reportes/datos');
+
+    expect(res.status).toBe(200);
+    for (const field of ['ventas', 'compras', 'productos', 'inventarios', 'movimientos', 'detallesCompras']) {
+      expect(Array.isArray(res.body[field])).toBe(true);
+    }
   });
 });
 
@@ -664,7 +818,8 @@ describe('Backend CRUD endpoints', () => {
     const category = await createCategoria();
     const product = await createProducto(category.id_categoria);
     const res = await request(app).delete(`/api/productos/${product.id_producto}`);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/producto debe estar inactivo/i);
   });
 
   test('GET /api/inventarios returns list', async () => {
@@ -815,7 +970,9 @@ describe('Backend CRUD endpoints', () => {
         ],
       });
 
+      trackCreatedRecord('compras', res.body.compra || res.body, 'id_compra');
       createdPurchaseId = res.body.compra.id_compra;
+      trackCreatedId('compras', createdPurchaseId);
 
       expect(res.status).toBe(201);
       expect(res.body).toHaveProperty('id_compra');
@@ -845,9 +1002,15 @@ describe('Backend CRUD endpoints', () => {
         );
 
         for (const row of movementRows) {
+          trackCreatedId('movimientos_inventario', row.id_movimiento);
           await pool.query('DELETE FROM movimientos_inventario WHERE id_movimiento = ?', [row.id_movimiento]);
         }
 
+        const [detailRows] = await pool.query(
+          'SELECT id_detalle_compra FROM detalle_compras WHERE compra_id = ?',
+          [createdPurchaseId]
+        );
+        detailRows.forEach(({ id_detalle_compra }) => trackCreatedId('detalle_compras', id_detalle_compra));
         await pool.query('DELETE FROM detalle_compras WHERE compra_id = ?', [createdPurchaseId]);
         await pool.query('DELETE FROM compras WHERE id_compra = ?', [createdPurchaseId]);
       }
@@ -859,6 +1022,161 @@ describe('Backend CRUD endpoints', () => {
       await pool.query('DELETE FROM usuarios WHERE id_usuario = ?', [user.id_usuario]);
       await pool.query('DELETE FROM roles WHERE id_rol = ?', [role.id_rol]);
     }
+  });
+
+  test('POST /api/compras/transaccional allows stock to reach stock_maximo exactly', async () => {
+    const provider = await createProveedor();
+    const category = await createCategoria();
+    const product = await createProducto(category.id_categoria);
+    const inventory = await createInventario(product.id_producto, {
+      stock_actual: 4,
+      stock_minimo: 0,
+      stock_maximo: 10,
+    });
+
+    const res = await request(app).post('/api/compras/transaccional').send({
+      proveedor_id: provider.id_proveedor,
+      numero_factura: makeUnique('compra_stock_maximo_exacta'),
+      fecha_compra: '2026-09-14',
+      estado: 'recibida',
+      detalles: [{ producto_id: product.id_producto, cantidad: 6, costo_unitario: 5 }],
+    });
+
+    trackCreatedRecord('compras', res.body.compra || res.body, 'id_compra');
+    expect(res.status).toBe(201);
+
+    const [inventoryRows] = await pool.query(
+      'SELECT stock_actual FROM inventarios WHERE id_inventario = ?',
+      [inventory.id_inventario]
+    );
+    expect(inventoryRows[0].stock_actual).toBe(10);
+  });
+
+  test('POST /api/compras/transaccional rejects stock above stock_maximo and rolls back', async () => {
+    const provider = await createProveedor();
+    const category = await createCategoria();
+    const product = await createProducto(category.id_categoria);
+    const inventory = await createInventario(product.id_producto, {
+      stock_actual: 4,
+      stock_minimo: 0,
+      stock_maximo: 10,
+    });
+    const invoiceNumber = makeUnique('compra_stock_maximo_excedido');
+
+    const res = await request(app).post('/api/compras/transaccional').send({
+      proveedor_id: provider.id_proveedor,
+      numero_factura: invoiceNumber,
+      fecha_compra: '2026-09-14',
+      estado: 'recibida',
+      detalles: [{ producto_id: product.id_producto, cantidad: 7, costo_unitario: 5 }],
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/stock máximo/i);
+
+    const [inventoryRows] = await pool.query(
+      'SELECT stock_actual FROM inventarios WHERE id_inventario = ?',
+      [inventory.id_inventario]
+    );
+    const [purchaseRows] = await pool.query(
+      'SELECT id_compra FROM compras WHERE numero_factura = ?',
+      [invoiceNumber]
+    );
+    expect(inventoryRows[0].stock_actual).toBe(4);
+    expect(purchaseRows).toHaveLength(0);
+  });
+
+  test('POST /api/compras/:id/estado allows stock to reach stock_maximo exactly', async () => {
+    const role = await createRole();
+    const user = await createUsuario(role.id_rol);
+    const provider = await createProveedor();
+    const category = await createCategoria();
+    const product = await createProducto(category.id_categoria);
+    const inventory = await createInventario(product.id_producto, {
+      stock_actual: 4,
+      stock_minimo: 0,
+      stock_maximo: 10,
+    });
+    const purchase = await createCompra(provider.id_proveedor, user.id_usuario);
+    await createDetalleCompra(purchase.id_compra, product.id_producto, { cantidad: 6 });
+
+    const res = await request(app)
+      .post(`/api/compras/${purchase.id_compra}/estado`)
+      .send({ estado: 'recibida' });
+
+    expect(res.status).toBe(200);
+
+    const [inventoryRows] = await pool.query(
+      'SELECT stock_actual FROM inventarios WHERE id_inventario = ?',
+      [inventory.id_inventario]
+    );
+    expect(inventoryRows[0].stock_actual).toBe(10);
+  });
+
+  test('POST /api/compras/:id/estado rejects stock above stock_maximo and rolls back', async () => {
+    const role = await createRole();
+    const user = await createUsuario(role.id_rol);
+    const provider = await createProveedor();
+    const category = await createCategoria();
+    const product = await createProducto(category.id_categoria);
+    const inventory = await createInventario(product.id_producto, {
+      stock_actual: 4,
+      stock_minimo: 0,
+      stock_maximo: 10,
+    });
+    const purchase = await createCompra(provider.id_proveedor, user.id_usuario);
+    await createDetalleCompra(purchase.id_compra, product.id_producto, { cantidad: 7 });
+
+    const res = await request(app)
+      .post(`/api/compras/${purchase.id_compra}/estado`)
+      .send({ estado: 'recibida' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/stock máximo/i);
+
+    const [inventoryRows] = await pool.query(
+      'SELECT stock_actual FROM inventarios WHERE id_inventario = ?',
+      [inventory.id_inventario]
+    );
+    const [purchaseRows] = await pool.query(
+      'SELECT estado FROM compras WHERE id_compra = ?',
+      [purchase.id_compra]
+    );
+    const [movementRows] = await pool.query(
+      'SELECT id_movimiento FROM movimientos_inventario WHERE compra_id = ?',
+      [purchase.id_compra]
+    );
+    expect(inventoryRows[0].stock_actual).toBe(4);
+    expect(purchaseRows[0].estado).toBe('pendiente');
+    expect(movementRows).toHaveLength(0);
+  });
+
+  test('POST /api/compras/transaccional allows receipt when stock_maximo is NULL', async () => {
+    const provider = await createProveedor();
+    const category = await createCategoria();
+    const product = await createProducto(category.id_categoria);
+    const inventory = await createInventario(product.id_producto, {
+      stock_actual: 5,
+      stock_minimo: 0,
+      stock_maximo: null,
+    });
+
+    const res = await request(app).post('/api/compras/transaccional').send({
+      proveedor_id: provider.id_proveedor,
+      numero_factura: makeUnique('compra_stock_maximo_nulo'),
+      fecha_compra: '2026-09-14',
+      estado: 'recibida',
+      detalles: [{ producto_id: product.id_producto, cantidad: 3, costo_unitario: 5 }],
+    });
+
+    trackCreatedRecord('compras', res.body.compra || res.body, 'id_compra');
+    expect(res.status).toBe(201);
+
+    const [inventoryRows] = await pool.query(
+      'SELECT stock_actual FROM inventarios WHERE id_inventario = ?',
+      [inventory.id_inventario]
+    );
+    expect(inventoryRows[0].stock_actual).toBe(8);
   });
 
   test('GET /api/compras/:id returns a purchase', async () => {
@@ -942,15 +1260,29 @@ describe('Backend CRUD endpoints', () => {
     const res = await request(app).get('/api/ventas');
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
+    const listedSale = res.body.find((item) => item.id_venta === sale.id_venta);
+    expect(listedSale).not.toHaveProperty('descuento');
+    expect(listedSale).not.toHaveProperty('subtotal');
     await request(app).delete(`/api/ventas/${sale.id_venta}`);
     await request(app).delete(`/api/usuarios/${user.id_usuario}`);
   });
 
-  test('POST /api/ventas creates a sale', async () => {
+  test('POST /api/ventas ignores discount and creates a sale without returning the field', async () => {
     const role = await createRole();
     const user = await createUsuario(role.id_rol);
-    const sale = await createVenta(user.id_usuario);
+    const sale = await createVenta(user.id_usuario, { descuento: 25 });
     expect(sale).toHaveProperty('id_venta');
+    expect(sale).not.toHaveProperty('descuento');
+
+    const [discountColumns] = await pool.query(
+      `SELECT COUNT(*) AS column_count
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'ventas'
+         AND COLUMN_NAME = 'descuento'`
+    );
+    expect(Number(discountColumns[0].column_count)).toBe(0);
+
     await request(app).delete(`/api/ventas/${sale.id_venta}`);
     await request(app).delete(`/api/usuarios/${user.id_usuario}`);
   });
@@ -981,12 +1313,16 @@ describe('Backend CRUD endpoints', () => {
         ],
       });
 
+      trackCreatedRecord('ventas', res.body.venta || res.body, 'id_venta');
       createdVentaId = res.body.venta.id_venta;
+      trackCreatedId('ventas', createdVentaId);
 
       expect(res.status).toBe(201);
       expect(res.body).toHaveProperty('id_venta');
       expect(res.body.venta).toHaveProperty('id_venta');
       expect(res.body.venta.total).toBe('200.00');
+      expect(res.body.venta).not.toHaveProperty('descuento');
+      expect(res.body.totales).toEqual({ total: 200 });
 
       const [inventoryRows] = await pool.query(
         'SELECT stock_actual FROM inventarios WHERE id_inventario = ?',
@@ -1011,9 +1347,15 @@ describe('Backend CRUD endpoints', () => {
         );
 
         for (const row of movementRows) {
+          trackCreatedId('movimientos_inventario', row.id_movimiento);
           await pool.query('DELETE FROM movimientos_inventario WHERE id_movimiento = ?', [row.id_movimiento]);
         }
 
+        const [detailRows] = await pool.query(
+          'SELECT id_detalle_venta FROM detalle_ventas WHERE venta_id = ?',
+          [createdVentaId]
+        );
+        detailRows.forEach(({ id_detalle_venta }) => trackCreatedId('detalle_ventas', id_detalle_venta));
         await pool.query('DELETE FROM detalle_ventas WHERE venta_id = ?', [createdVentaId]);
         await pool.query('DELETE FROM ventas WHERE id_venta = ?', [createdVentaId]);
       }
@@ -1039,7 +1381,7 @@ describe('Backend CRUD endpoints', () => {
     try {
       const res = await supertest(app)
         .post('/api/compras/transaccional')
-        .set('Authorization', `Bearer ${nonAdminToken}`)
+        .set('Authorization', `Bearer ${authToken}`)
         .send({
           proveedor_id: provider.id_proveedor,
           usuario_id: overrideUser.id_usuario,
@@ -1058,10 +1400,12 @@ describe('Backend CRUD endpoints', () => {
           ],
         });
 
+      trackCreatedRecord('compras', res.body.compra || res.body, 'id_compra');
       createdPurchaseId = res.body.compra.id_compra;
+      trackCreatedId('compras', createdPurchaseId);
 
       expect(res.status).toBe(201);
-      expect(res.body.compra.usuario_id).toBe(nonAdminUser.id_usuario);
+      expect(res.body.compra.usuario_id).toBe(seededUserId);
       expect(res.body.compra.usuario_id).not.toBe(overrideUser.id_usuario);
 
       const [inventoryRows] = await pool.query(
@@ -1078,9 +1422,15 @@ describe('Backend CRUD endpoints', () => {
         );
 
         for (const row of movementRows) {
+          trackCreatedId('movimientos_inventario', row.id_movimiento);
           await pool.query('DELETE FROM movimientos_inventario WHERE id_movimiento = ?', [row.id_movimiento]);
         }
 
+        const [detailRows] = await pool.query(
+          'SELECT id_detalle_compra FROM detalle_compras WHERE compra_id = ?',
+          [createdPurchaseId]
+        );
+        detailRows.forEach(({ id_detalle_compra }) => trackCreatedId('detalle_compras', id_detalle_compra));
         await pool.query('DELETE FROM detalle_compras WHERE compra_id = ?', [createdPurchaseId]);
         await pool.query('DELETE FROM compras WHERE id_compra = ?', [createdPurchaseId]);
       }
@@ -1143,6 +1493,8 @@ describe('Backend CRUD endpoints', () => {
     const res = await request(app).get(`/api/ventas/${sale.id_venta}`);
     expect(res.status).toBe(200);
     expect(res.body.id_venta).toBe(sale.id_venta);
+    expect(res.body).not.toHaveProperty('descuento');
+    expect(res.body).not.toHaveProperty('subtotal');
     await request(app).delete(`/api/ventas/${sale.id_venta}`);
     await request(app).delete(`/api/usuarios/${user.id_usuario}`);
   });
@@ -1151,13 +1503,84 @@ describe('Backend CRUD endpoints', () => {
     const role = await createRole();
     const user = await createUsuario(role.id_rol);
     const sale = await createVenta(user.id_usuario);
-    const res = await request(app)
+    const updateRes = await request(app)
       .put(`/api/ventas/${sale.id_venta}`)
-      .send({ estado: 'pagada', observaciones: 'actualizado' });
+      .send({ observaciones: 'actualizado' });
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.body.observaciones).toBe('actualizado');
 
-    expect(res.status).toBe(200);
+    const discountRes = await request(app)
+      .put(`/api/ventas/${sale.id_venta}`)
+      .send({ descuento: 25 });
+    expect(discountRes.status).toBe(400);
+
+    const stateRes = await request(app)
+      .put(`/api/ventas/${sale.id_venta}`)
+      .send({ estado: 'pagada', observaciones: 'no debe actualizarse' });
+    expect(stateRes.status).toBe(400);
+    expect(stateRes.body.message).toMatch(/POST \/api\/ventas\/:id\/estado/);
+
+    const saleAfterRejectedUpdate = await request(app).get(`/api/ventas/${sale.id_venta}`);
+    expect(saleAfterRejectedUpdate.body.estado).toBe('pendiente');
+    expect(saleAfterRejectedUpdate.body.observaciones).toBe('actualizado');
+
     await request(app).delete(`/api/ventas/${sale.id_venta}`);
     await request(app).delete(`/api/usuarios/${user.id_usuario}`);
+  });
+
+  test('POST /api/ventas/:id/estado preserves transactional stock and movement updates', async () => {
+    const role = await createRole();
+    const user = await createUsuario(role.id_rol);
+    const category = await createCategoria();
+    const product = await createProducto(category.id_categoria);
+    const inventory = await createInventario(product.id_producto, {
+      stock_actual: 5,
+      stock_minimo: 0,
+      stock_maximo: 50,
+    });
+    const sale = await createVenta(user.id_usuario);
+    const detail = await createDetalleVenta(sale.id_venta, product.id_producto, {
+      cantidad: 2,
+    });
+
+    try {
+      const response = await request(app)
+        .post(`/api/ventas/${sale.id_venta}/estado`)
+        .send({ estado: 'pagada' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.estado).toBe('pagada');
+
+      const [inventoryRows] = await pool.query(
+        'SELECT stock_actual FROM inventarios WHERE id_inventario = ?',
+        [inventory.id_inventario]
+      );
+      expect(inventoryRows[0].stock_actual).toBe(3);
+
+      const [movementRows] = await pool.query(
+        'SELECT tipo_movimiento, cantidad FROM movimientos_inventario WHERE venta_id = ?',
+        [sale.id_venta]
+      );
+      expect(movementRows).toHaveLength(1);
+      expect(movementRows[0].tipo_movimiento).toBe('salida');
+      expect(movementRows[0].cantidad).toBe(2);
+    } finally {
+      const [movementRows] = await pool.query(
+        'SELECT id_movimiento FROM movimientos_inventario WHERE venta_id = ?',
+        [sale.id_venta]
+      );
+      for (const row of movementRows) {
+        trackCreatedId('movimientos_inventario', row.id_movimiento);
+        await pool.query('DELETE FROM movimientos_inventario WHERE id_movimiento = ?', [row.id_movimiento]);
+      }
+      await pool.query('DELETE FROM detalle_ventas WHERE id_detalle_venta = ?', [detail.id_detalle_venta]);
+      await pool.query('DELETE FROM ventas WHERE id_venta = ?', [sale.id_venta]);
+      await pool.query('DELETE FROM inventarios WHERE id_inventario = ?', [inventory.id_inventario]);
+      await pool.query('DELETE FROM productos WHERE id_producto = ?', [product.id_producto]);
+      await pool.query('DELETE FROM categorias WHERE id_categoria = ?', [category.id_categoria]);
+      await pool.query('DELETE FROM usuarios WHERE id_usuario = ?', [user.id_usuario]);
+      await pool.query('DELETE FROM roles WHERE id_rol = ?', [role.id_rol]);
+    }
   });
 
   test('DELETE /api/ventas/:id deletes a sale', async () => {
@@ -1213,6 +1636,9 @@ describe('Backend CRUD endpoints', () => {
     const res = await request(app).get('/api/detalle-ventas');
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
+    const listedDetail = res.body.find((item) => item.id_detalle_venta === detail.id_detalle_venta);
+    expect(listedDetail).not.toHaveProperty('descuento');
+    expect(listedDetail).not.toHaveProperty('subtotal');
     await request(app).delete(`/api/detalle-ventas/${detail.id_detalle_venta}`);
     await request(app).delete(`/api/ventas/${sale.id_venta}`);
     await request(app).delete(`/api/productos/${product.id_producto}`);
@@ -1225,8 +1651,23 @@ describe('Backend CRUD endpoints', () => {
     const category = await createCategoria();
     const product = await createProducto(category.id_categoria);
     const sale = await createVenta(user.id_usuario);
-    const detail = await createDetalleVenta(sale.id_venta, product.id_producto);
+    const detail = await createDetalleVenta(sale.id_venta, product.id_producto, { descuento: 25 });
     expect(detail).toHaveProperty('id_detalle_venta');
+    expect(detail).not.toHaveProperty('descuento');
+
+    const detailRes = await request(app).get(`/api/detalle-ventas/${detail.id_detalle_venta}`);
+    expect(detailRes.status).toBe(200);
+    expect(detailRes.body).not.toHaveProperty('descuento');
+    expect(detailRes.body).not.toHaveProperty('subtotal');
+
+    const [discountColumns] = await pool.query(
+      `SELECT COUNT(*) AS column_count
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'detalle_ventas'
+         AND COLUMN_NAME = 'descuento'`
+    );
+    expect(Number(discountColumns[0].column_count)).toBe(0);
     await request(app).delete(`/api/detalle-ventas/${detail.id_detalle_venta}`);
     await request(app).delete(`/api/ventas/${sale.id_venta}`);
     await request(app).delete(`/api/productos/${product.id_producto}`);

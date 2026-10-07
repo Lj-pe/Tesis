@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import apiClient from "../api/client";
+import calcularEstadoInventario from "../utils/inventario";
 
 const emptyForm = {
   stock_actual: "",
@@ -15,21 +16,11 @@ const estadoClases = {
   bloqueado: "inactive-badge",
 };
 
-function calcularEstadoInventario(stockActual, stockMinimo, estadoActual) {
-  if (estadoActual === "bloqueado") return "bloqueado";
-
-  const actual = Number(stockActual) || 0;
-  const minimo = Number(stockMinimo) || 0;
-
-  if (actual === 0) return "agotado";
-  if (actual <= minimo) return "bajo";
-  return "normal";
-}
-
 function Inventario() {
   const [inventarios, setInventarios] = useState([]);
   const [productos, setProductos] = useState([]);
   const [categorias, setCategorias] = useState([]);
+  const [puedeEditar, setPuedeEditar] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [busqueda, setBusqueda] = useState("");
@@ -42,15 +33,17 @@ function Inventario() {
   const cargarDatos = async () => {
     try {
       setLoadError("");
-      const [inventariosData, productosData, categoriasData] = await Promise.all([
+      const [inventariosData, productosData, categoriasData, perfil] = await Promise.all([
         apiClient.get("/inventarios"),
         apiClient.get("/productos"),
         apiClient.get("/categorias"),
+        apiClient.get("/auth/me"),
       ]);
 
       setInventarios(Array.isArray(inventariosData) ? inventariosData : []);
       setProductos(Array.isArray(productosData) ? productosData : []);
       setCategorias(Array.isArray(categoriasData) ? categoriasData : []);
+      setPuedeEditar(perfil.rol?.nombre === "Administrador");
     } catch (error) {
       setLoadError(error.message || "No se pudieron cargar los datos de inventario.");
     } finally {
@@ -59,7 +52,7 @@ function Inventario() {
   };
 
   useEffect(() => {
-    cargarDatos();
+    Promise.resolve().then(cargarDatos);
   }, []);
 
   const obtenerProducto = (productoId) =>
@@ -76,6 +69,8 @@ function Inventario() {
   };
 
   const abrirEditar = (inventario) => {
+    if (!puedeEditar) return;
+
     setEditingInventory(inventario);
     setForm({
       stock_actual: String(inventario.stock_actual ?? 0),
@@ -140,6 +135,8 @@ function Inventario() {
 
   const guardarInventario = async (event) => {
     event.preventDefault();
+    if (!puedeEditar) return;
+
     const errorValidacion = validarFormulario();
 
     if (errorValidacion) {
@@ -285,14 +282,14 @@ function Inventario() {
                 <th>Stock actual</th>
                 <th>Estado</th>
                 <th>Actualización</th>
-                <th>Acciones</th>
+                {puedeEditar && <th>Acciones</th>}
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan="7">Cargando inventario...</td></tr>
-              ) : inventariosVisibles.length === 0 ? (
-                <tr><td colSpan="7">No se encontraron inventarios con los filtros actuales.</td></tr>
+                <tr><td colSpan={puedeEditar ? "7" : "6"}>Cargando inventario...</td></tr>
+              ) : !loadError && inventariosVisibles.length === 0 ? (
+                <tr><td colSpan={puedeEditar ? "7" : "6"}>No se encontraron inventarios con los filtros actuales.</td></tr>
               ) : inventariosVisibles.map((inventario) => {
                 const producto = obtenerProducto(inventario.producto_id);
                 const estado = calcularEstadoInventario(
@@ -313,11 +310,13 @@ function Inventario() {
                       </span>
                     </td>
                     <td>{formatearFecha(inventario.fecha_actualizacion || inventario.fecha_ultima_actualizacion)}</td>
-                    <td>
-                      <button className="action-button" onClick={() => abrirEditar(inventario)}>
-                        Editar
-                      </button>
-                    </td>
+                    {puedeEditar && (
+                      <td>
+                        <button className="action-button" onClick={() => abrirEditar(inventario)}>
+                          Editar
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}

@@ -1,16 +1,6 @@
 import { useEffect, useState } from "react";
 import apiClient from "../api/client";
-
-function calcularEstadoInventario(inventario) {
-  if (inventario.estado_inventario === "bloqueado") return "bloqueado";
-
-  const stockActual = Number(inventario.stock_actual) || 0;
-  const stockMinimo = Number(inventario.stock_minimo) || 0;
-
-  if (stockActual === 0) return "agotado";
-  if (stockActual <= stockMinimo) return "bajo";
-  return "normal";
-}
+import calcularEstadoInventario from "../utils/inventario";
 
 function Dashboard() {
   const [dashboard, setDashboard] = useState({
@@ -69,7 +59,11 @@ function Dashboard() {
   const stockTotal = dashboard.inventarios.reduce((total, inventario) => total + Number(inventario.stock_actual || 0), 0);
   const inventariosConEstadoCalculado = dashboard.inventarios.map((inventario) => ({
     ...inventario,
-    estado_calculado: calcularEstadoInventario(inventario),
+    estado_calculado: calcularEstadoInventario(
+      inventario.stock_actual,
+      inventario.stock_minimo,
+      inventario.estado_inventario
+    ),
   }));
   const inventariosBajos = inventariosConEstadoCalculado.filter((inventario) => inventario.estado_calculado === "bajo");
   const inventariosAlerta = inventariosConEstadoCalculado.filter((inventario) => ["bajo", "agotado"].includes(inventario.estado_calculado));
@@ -110,8 +104,8 @@ function Dashboard() {
               <path d="m4.5 7.8 7.5 4.3 7.5-4.3M12 12v9" />
             </svg>
           </div>
-          <strong>{isLoading ? "-" : dashboard.productos.length}</strong>
-          <small>Productos registrados</small>
+          <strong>{isLoading || loadError ? "-" : dashboard.productos.length}</strong>
+          <small>{loadError ? "Datos no disponibles" : "Productos registrados"}</small>
         </div>
 
         <div className="stat-card">
@@ -123,8 +117,8 @@ function Dashboard() {
               <path d="m7.5 5.3 9 4.6" />
             </svg>
           </div>
-          <strong>{isLoading ? "-" : stockTotal.toLocaleString("es-PE")}</strong>
-          <small>Unidades disponibles</small>
+          <strong>{isLoading || loadError ? "-" : stockTotal.toLocaleString("es-PE")}</strong>
+          <small>{loadError ? "Datos no disponibles" : "Unidades disponibles"}</small>
         </div>
 
         <div className="stat-card warning">
@@ -135,8 +129,8 @@ function Dashboard() {
               <path d="M12 9v4M12 16.5h.01" />
             </svg>
           </div>
-          <strong>{isLoading ? "-" : inventariosBajos.length}</strong>
-          <small>Necesitan reposición</small>
+          <strong>{isLoading || loadError ? "-" : inventariosBajos.length}</strong>
+          <small>{loadError ? "Datos no disponibles" : "Necesitan reposición"}</small>
         </div>
 
         <div className="stat-card success">
@@ -148,8 +142,8 @@ function Dashboard() {
               <path d="M16 6h4v4" />
             </svg>
           </div>
-          <strong>{isLoading ? "-" : `S/ ${totalVentasActual.toFixed(2)}`}</strong>
-          <small>Ventas pagadas del mes</small>
+          <strong>{isLoading || loadError ? "-" : `S/ ${totalVentasActual.toFixed(2)}`}</strong>
+          <small>{loadError ? "Datos no disponibles" : "Ventas pagadas del mes"}</small>
         </div>
 
       </div>
@@ -172,7 +166,9 @@ function Dashboard() {
             </thead>
 
             <tbody>
-              {isLoading ? (
+              {loadError ? (
+                <tr><td colSpan="3">Datos no disponibles por un error de carga.</td></tr>
+              ) : isLoading ? (
                 <tr><td colSpan="3">Cargando demanda...</td></tr>
               ) : productosDemanda.length === 0 ? (
                 <tr><td colSpan="3">No hay salidas confirmadas.</td></tr>
@@ -213,7 +209,9 @@ function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {isLoading ? (
+              {loadError ? (
+                <tr><td colSpan="5">Datos no disponibles por un error de carga.</td></tr>
+              ) : isLoading ? (
                 <tr><td colSpan="5">Cargando alertas...</td></tr>
               ) : inventariosAlerta.length === 0 ? (
                 <tr><td colSpan="5">No hay alertas de inventario.</td></tr>

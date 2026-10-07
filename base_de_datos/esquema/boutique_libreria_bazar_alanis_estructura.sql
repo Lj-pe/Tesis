@@ -137,7 +137,7 @@ CREATE TABLE compras (
     fecha_recepcion DATE NULL,
     subtotal DECIMAL(12,2) NOT NULL DEFAULT 0.00,
     total DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-    estado ENUM('pendiente', 'recibida', 'anulada', 'parcial') NOT NULL DEFAULT 'pendiente',
+    estado ENUM('pendiente', 'recibida', 'anulada') NOT NULL DEFAULT 'pendiente',
     observaciones TEXT NULL,
     fecha_creacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     fecha_actualizacion DATETIME NULL,

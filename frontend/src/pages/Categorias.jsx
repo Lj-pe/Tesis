@@ -11,6 +11,8 @@ function Categorias() {
   const [categorias, setCategorias] = useState([]);
   const [productos, setProductos] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [errorCargaCategorias, setErrorCargaCategorias] = useState("");
+  const [errorCargaProductos, setErrorCargaProductos] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingCategory, setEditingCategory] = useState(null);
   const [form, setForm] = useState(emptyForm);
@@ -24,8 +26,9 @@ function Categorias() {
     try {
       const data = await apiClient.get("/categorias");
       setCategorias(Array.isArray(data) ? data : []);
+      setErrorCargaCategorias("");
     } catch (error) {
-      setCategorias([]);
+      setErrorCargaCategorias(error.message || "No se pudieron cargar las categorías.");
     } finally {
       setIsLoading(false);
     }
@@ -35,14 +38,17 @@ function Categorias() {
     try {
       const data = await apiClient.get("/productos");
       setProductos(Array.isArray(data) ? data : []);
-    } catch {
-      setProductos(null);
+      setErrorCargaProductos("");
+    } catch (error) {
+      setErrorCargaProductos(error.message || "No se pudieron cargar los productos asociados.");
     }
   };
 
   useEffect(() => {
-    cargarCategorias();
-    cargarProductos();
+    Promise.resolve().then(() => {
+      cargarCategorias();
+      cargarProductos();
+    });
   }, []);
 
   const resetFormulario = () => {
@@ -200,6 +206,16 @@ function Categorias() {
       </div>
 
       <div className="panel">
+        {errorCargaCategorias && (
+          <div className="error-message" role="alert" style={{ marginBottom: "1rem" }}>
+            {errorCargaCategorias}
+          </div>
+        )}
+        {errorCargaProductos && (
+          <div className="error-message" role="alert" style={{ marginBottom: "1rem" }}>
+            {errorCargaProductos}
+          </div>
+        )}
         <table>
           <thead>
             <tr>

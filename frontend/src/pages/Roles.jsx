@@ -10,11 +10,13 @@ const emptyForm = {
 const modulosRol = [
   "Dashboard",
   "Productos",
-  "Compras",
+  "Categorías",
   "Inventario",
-  "Usuarios",
+  "Movimientos",
   "Ventas",
+  "Compras",
   "Proveedores",
+  "Usuarios",
   "Roles",
   "Reportes",
   "Predicción",
@@ -22,7 +24,9 @@ const modulosRol = [
 
 const esRolAdministrador = (rol) => rol.nombre?.trim().toLowerCase() === "administrador";
 
-const permisosIniciales = (rol) => (esRolAdministrador(rol) ? modulosRol : []);
+const obtenerModulosPermitidos = (permisos) => permisos
+  .filter((permiso) => permiso.acceso)
+  .map((permiso) => permiso.modulo);
 
 function Roles() {
   const [roles, setRoles] = useState([]);
@@ -36,16 +40,26 @@ function Roles() {
   const [permisosBorrador, setPermisosBorrador] = useState({});
   const [permisosConfirmados, setPermisosConfirmados] = useState({});
   const [confirmacionesLocales, setConfirmacionesLocales] = useState({});
+  const [guardandoPermisos, setGuardandoPermisos] = useState({});
 
   const cargarRoles = async () => {
     try {
-      setLoadError("");
       const [rolesData, usuariosData] = await Promise.all([
         apiClient.get("/roles"),
         apiClient.get("/usuarios"),
       ]);
-      setRoles(Array.isArray(rolesData) ? rolesData : []);
+      const rolesCargados = Array.isArray(rolesData) ? rolesData : [];
+      const permisosPorRol = await Promise.all(rolesCargados.map(async (rol) => {
+        const permisos = await apiClient.get(`/roles/${rol.id_rol}/permisos`);
+        return [rol.id_rol, obtenerModulosPermitidos(permisos)];
+      }));
+      const permisosIniciales = Object.fromEntries(permisosPorRol);
+      setLoadError("");
+      setRoles(rolesCargados);
       setUsuarios(Array.isArray(usuariosData) ? usuariosData : []);
+      setPermisosBorrador(permisosIniciales);
+      setPermisosConfirmados(permisosIniciales);
+      setConfirmacionesLocales({});
     } catch (error) {
       setLoadError(error.message || "No se pudieron cargar los roles.");
     } finally {
@@ -54,7 +68,7 @@ function Roles() {
   };
 
   useEffect(() => {
-    cargarRoles();
+    Promise.resolve().then(cargarRoles);
   }, []);
 
   const abrirCrear = () => {
@@ -128,7 +142,7 @@ function Roles() {
 
   const cambiarPermisoLocal = (rol, modulo) => {
     setPermisosBorrador((actuales) => {
-      const seleccionados = actuales[rol.id_rol] ?? permisosIniciales(rol);
+      const seleccionados = actuales[rol.id_rol] ?? [];
       const siguiente = seleccionados.includes(modulo)
         ? seleccionados.filter((permiso) => permiso !== modulo)
         : [...seleccionados, modulo];
@@ -137,10 +151,28 @@ function Roles() {
     setConfirmacionesLocales((actuales) => ({ ...actuales, [rol.id_rol]: false }));
   };
 
-  const confirmarPermisosLocales = (rol) => {
-    const seleccionados = permisosBorrador[rol.id_rol] ?? permisosIniciales(rol);
-    setPermisosConfirmados((actuales) => ({ ...actuales, [rol.id_rol]: [...seleccionados] }));
-    setConfirmacionesLocales((actuales) => ({ ...actuales, [rol.id_rol]: true }));
+  const confirmarPermisosLocales = async (rol) => {
+    const seleccionados = permisosBorrador[rol.id_rol] ?? [];
+    setLoadError("");
+    setGuardandoPermisos((actuales) => ({ ...actuales, [rol.id_rol]: true }));
+
+    try {
+      await apiClient.put(`/roles/${rol.id_rol}/permisos`, {
+        permisos: modulosRol.map((modulo) => ({
+          modulo,
+          acceso: seleccionados.includes(modulo),
+        })),
+      });
+      const permisosActualizados = await apiClient.get(`/roles/${rol.id_rol}/permisos`);
+      const modulosPermitidos = obtenerModulosPermitidos(permisosActualizados);
+      setPermisosBorrador((actuales) => ({ ...actuales, [rol.id_rol]: modulosPermitidos }));
+      setPermisosConfirmados((actuales) => ({ ...actuales, [rol.id_rol]: modulosPermitidos }));
+      setConfirmacionesLocales((actuales) => ({ ...actuales, [rol.id_rol]: true }));
+    } catch (error) {
+      setLoadError(error.message || "No se pudieron guardar los permisos del rol.");
+    } finally {
+      setGuardandoPermisos((actuales) => ({ ...actuales, [rol.id_rol]: false }));
+    }
   };
 
   return (
@@ -166,12 +198,12 @@ function Roles() {
       <div className="roles-grid">
         {isLoading ? (
           <div className="role-card"><p>Cargando roles...</p></div>
-        ) : roles.length === 0 ? (
+        ) : !loadError && roles.length === 0 ? (
           <div className="role-card"><p>No hay roles registrados.</p></div>
         ) : roles.map((rol) => {
           const esAdministrador = esRolAdministrador(rol);
-          const seleccionados = permisosBorrador[rol.id_rol] ?? permisosIniciales(rol);
-          const confirmados = permisosConfirmados[rol.id_rol] ?? permisosIniciales(rol);
+          const seleccionados = permisosBorrador[rol.id_rol] ?? [];
+          const confirmados = permisosConfirmados[rol.id_rol] ?? [];
           const hayCambios = modulosRol.some((modulo) => seleccionados.includes(modulo) !== confirmados.includes(modulo));
 
           return (
@@ -246,7 +278,7 @@ function Roles() {
                       <input
                         type="checkbox"
                         checked={esAdministrador || seleccionados.includes(modulo)}
-                        disabled={esAdministrador}
+                        disabled={esAdministrador || guardandoPermisos[rol.id_rol]}
                         onChange={() => cambiarPermisoLocal(rol, modulo)}
                       />
                       <span>{modulo}</span>
@@ -261,13 +293,13 @@ function Roles() {
                     {esAdministrador
                       ? "Los permisos del Administrador no pueden modificarse."
                       : confirmacionesLocales[rol.id_rol]
-                        ? "Selección confirmada localmente."
+                        ? "Permisos guardados y verificados."
                         : "Los cambios se aplicarán solo cuando confirmes."}
                   </strong>
                   <p>
                     {esAdministrador
                       ? "Este rol tiene acceso completo al sistema y está protegido."
-                      : "Marca o desmarca módulos y confirma para actualizar la selección local. No se guarda en la base de datos."}
+                      : "Marca o desmarca módulos y confirma para guardar los permisos."}
                   </p>
                 </div>
               </div>
@@ -276,10 +308,10 @@ function Roles() {
                   <button
                     type="button"
                     className="primary-button"
-                    disabled={!hayCambios}
+                    disabled={!hayCambios || guardandoPermisos[rol.id_rol]}
                     onClick={() => confirmarPermisosLocales(rol)}
                   >
-                    Confirmar cambios
+                    {guardandoPermisos[rol.id_rol] ? "Guardando..." : "Confirmar cambios"}
                   </button>
                 )}
                 {!esAdministrador && (

@@ -50,7 +50,7 @@ function Compras() {
   };
 
   useEffect(() => {
-    cargarDatos();
+    Promise.resolve().then(cargarDatos);
   }, []);
 
   const abrirFormulario = () => {
@@ -216,7 +216,7 @@ function Compras() {
             <tbody>
               {isLoading ? (
                 <tr><td colSpan="7">Cargando compras...</td></tr>
-              ) : comprasVisibles.length === 0 ? (
+              ) : !loadError && comprasVisibles.length === 0 ? (
                 <tr><td colSpan="7">No se encontraron compras.</td></tr>
               ) : comprasVisibles.map((compra) => (
                 <tr key={compra.id_compra}>

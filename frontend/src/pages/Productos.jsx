@@ -50,6 +50,8 @@ function Productos() {
         await cargarProductos();
       } catch (error) {
         setSubmitError(error.message || "No se pudieron cargar los datos.");
+      } finally {
+        setIsLoading(false);
       }
     };
 
@@ -237,7 +239,6 @@ function Productos() {
                 <th>Producto</th>
                 <th>Categoría</th>
                 <th>Precio</th>
-                <th>Reposición</th>
                 <th>Estado</th>
                 <th>Acciones</th>
               </tr>
@@ -246,11 +247,11 @@ function Productos() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan="7">Cargando productos...</td>
+                  <td colSpan="6">Cargando productos...</td>
                 </tr>
               ) : productosFiltrados.length === 0 ? (
                 <tr>
-                  <td colSpan="7">No se encontraron productos con los filtros actuales.</td>
+                  <td colSpan="6">No se encontraron productos con los filtros actuales.</td>
                 </tr>
               ) : (
                 productosFiltrados.map((producto) => (
@@ -264,8 +265,6 @@ function Productos() {
                     <td>{obtenerCategoria(producto.categoria_id)}</td>
 
                     <td>S/ {Number(producto.precio_venta_actual || 0).toFixed(2)}</td>
-
-                    <td>NO DISPONIBLE</td>
 
                     <td>
                       <span

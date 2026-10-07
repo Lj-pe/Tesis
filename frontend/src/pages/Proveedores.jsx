@@ -34,7 +34,7 @@ function Proveedores() {
   };
 
   useEffect(() => {
-    cargarProveedores();
+    Promise.resolve().then(cargarProveedores);
   }, []);
 
   const abrirCrear = () => {
@@ -164,7 +164,7 @@ function Proveedores() {
           <tbody>
             {isLoading ? (
               <tr><td colSpan="6">Cargando proveedores...</td></tr>
-            ) : proveedoresVisibles.length === 0 ? (
+            ) : !loadError && proveedoresVisibles.length === 0 ? (
               <tr><td colSpan="6">No se encontraron proveedores.</td></tr>
             ) : proveedoresVisibles.map((proveedor) => (
               <tr key={proveedor.id_proveedor}>

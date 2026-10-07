@@ -5,7 +5,7 @@ function Movimientos() {
   const [movimientos, setMovimientos] = useState([]);
   const [inventarios, setInventarios] = useState([]);
   const [productos, setProductos] = useState([]);
-  const [usuarios, setUsuarios] = useState([]);
+  const [usuarios, setUsuarios] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [busqueda, setBusqueda] = useState("");
@@ -14,16 +14,20 @@ function Movimientos() {
   useEffect(() => {
     const cargarDatos = async () => {
       try {
-        const [movimientosData, inventariosData, productosData, usuariosData] = await Promise.all([
+        const [movimientosData, inventariosData, productosData] = await Promise.all([
           apiClient.get("/movimientos-inventario"),
           apiClient.get("/inventarios"),
           apiClient.get("/productos"),
-          apiClient.get("/usuarios"),
         ]);
         setMovimientos(Array.isArray(movimientosData) ? movimientosData : []);
         setInventarios(Array.isArray(inventariosData) ? inventariosData : []);
         setProductos(Array.isArray(productosData) ? productosData : []);
-        setUsuarios(Array.isArray(usuariosData) ? usuariosData : []);
+        try {
+          const usuariosData = await apiClient.get("/usuarios");
+          setUsuarios(Array.isArray(usuariosData) ? usuariosData : []);
+        } catch {
+          setUsuarios(null);
+        }
       } catch (error) {
         setLoadError(error.message || "No se pudieron cargar los movimientos de inventario.");
       } finally {
@@ -39,6 +43,7 @@ function Movimientos() {
   };
 
   const obtenerUsuario = (usuarioId) => {
+    if (usuarios === null) return "Usuario no disponible";
     const usuario = usuarios.find((item) => item.id_usuario === usuarioId);
     return usuario ? `${usuario.nombre} ${usuario.apellido || ""}`.trim() : "Usuario no encontrado";
   };
@@ -86,7 +91,7 @@ function Movimientos() {
             <tbody>
               {isLoading ? (
                 <tr><td colSpan="8">Cargando movimientos...</td></tr>
-              ) : movimientosVisibles.length === 0 ? (
+              ) : !loadError && movimientosVisibles.length === 0 ? (
                 <tr><td colSpan="8">No se encontraron movimientos con los filtros actuales.</td></tr>
               ) : movimientosVisibles.map((movimiento) => {
                 const producto = obtenerProducto(movimiento.inventario_id);

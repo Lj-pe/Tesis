@@ -33,14 +33,25 @@ function Ventas() {
   const cargarDatos = async () => {
     try {
       setLoadError("");
-      const [ventasData, productosData, usuariosData] = await Promise.all([
+      const [ventasData, productosData] = await Promise.all([
         apiClient.get("/ventas"),
         apiClient.get("/productos"),
-        apiClient.get("/usuarios"),
       ]);
       setVentas(Array.isArray(ventasData) ? ventasData : []);
       setProductos(Array.isArray(productosData) ? productosData : []);
-      setUsuarios(Array.isArray(usuariosData) ? usuariosData : []);
+
+      const usuarioSesion = JSON.parse(localStorage.getItem("alanis_user") || "null");
+      if (usuarioSesion?.rol?.nombre === "Administrador") {
+        try {
+          const usuariosData = await apiClient.get("/usuarios");
+          setUsuarios(Array.isArray(usuariosData) ? usuariosData : []);
+        } catch (error) {
+          console.error("No se pudieron cargar los usuarios asociados a las ventas.", error);
+          setUsuarios([]);
+        }
+      } else {
+        setUsuarios([]);
+      }
     } catch (error) {
       setLoadError(error.message || "No se pudieron cargar las ventas.");
     } finally {
@@ -49,7 +60,7 @@ function Ventas() {
   };
 
   useEffect(() => {
-    cargarDatos();
+    Promise.resolve().then(cargarDatos);
   }, []);
 
   const abrirFormulario = () => {
@@ -219,7 +230,7 @@ function Ventas() {
             <tbody>
               {isLoading ? (
                 <tr><td colSpan="7">Cargando ventas...</td></tr>
-              ) : ventasVisibles.length === 0 ? (
+              ) : !loadError && ventasVisibles.length === 0 ? (
                 <tr><td colSpan="7">No se encontraron ventas.</td></tr>
               ) : ventasVisibles.map((venta) => (
                 <tr key={venta.id_venta}>
@@ -310,14 +321,13 @@ function Ventas() {
                   <h3 style={{ marginBottom: "0.75rem" }}>Productos</h3>
                   <div className="table-responsive">
                     <table>
-                      <thead><tr><th>Producto</th><th>Cantidad</th><th>Precio unitario</th><th>Descuento</th><th>Total de línea</th></tr></thead>
+                      <thead><tr><th>Producto</th><th>Cantidad</th><th>Precio unitario</th><th>Total de línea</th></tr></thead>
                       <tbody>
                         {(ventaDetalle.detalles || []).map((detalle) => (
                           <tr key={detalle.id_detalle_venta}>
                             <td>{detalle.nombre_producto || "Producto no encontrado"}</td>
                             <td>{detalle.cantidad}</td>
                             <td>S/ {Number(detalle.precio_unitario || 0).toFixed(2)}</td>
-                            <td>S/ {Number(detalle.descuento || 0).toFixed(2)}</td>
                             <td>S/ {Number(detalle.total_linea || 0).toFixed(2)}</td>
                           </tr>
                         ))}
@@ -329,14 +339,6 @@ function Ventas() {
                 <section style={{ marginTop: "0.75rem", marginBottom: "1rem" }}>
                   <h3 style={{ marginBottom: "0.5rem" }}>Totales</h3>
                   <div style={{ display: "grid", gap: "0.3rem", maxWidth: "360px", marginLeft: "auto" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "1.5rem" }}>
-                      <span>Subtotal</span>
-                      <strong>S/ {Number(ventaDetalle.subtotal || 0).toFixed(2)}</strong>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "1.5rem" }}>
-                      <span>Descuento</span>
-                      <strong>S/ {Number(ventaDetalle.descuento || 0).toFixed(2)}</strong>
-                    </div>
                     <div style={{ borderTop: "1px solid rgba(148, 163, 184, 0.35)", marginTop: "0.35rem", paddingTop: "0.55rem", display: "flex", justifyContent: "space-between", gap: "1.5rem", fontSize: "1.05rem" }}>
                       <strong>TOTAL</strong>
                       <strong>S/ {Number(ventaDetalle.total || 0).toFixed(2)}</strong>

@@ -2,7 +2,7 @@ const pool = require('../config/database');
 
 async function getAllVentas() {
   const [rows] = await pool.query(
-    `SELECT id_venta, usuario_id, numero_factura, fecha_venta, subtotal, descuento,
+    `SELECT id_venta, usuario_id, numero_factura, fecha_venta,
             total, estado, observaciones, forma_pago, fecha_creacion, fecha_actualizacion
      FROM ventas ORDER BY id_venta ASC`
   );
@@ -11,7 +11,7 @@ async function getAllVentas() {
 
 async function getVentaById(id) {
   const [rows] = await pool.query(
-    `SELECT id_venta, usuario_id, numero_factura, fecha_venta, subtotal, descuento,
+    `SELECT id_venta, usuario_id, numero_factura, fecha_venta,
             total, estado, observaciones, forma_pago, fecha_creacion, fecha_actualizacion
      FROM ventas WHERE id_venta = ?`,
     [id]
@@ -31,8 +31,6 @@ async function getVentaById(id) {
        p.codigo_sku,
        dv.cantidad,
        dv.precio_unitario,
-       dv.subtotal,
-       dv.descuento,
        dv.total_linea
      FROM detalle_ventas dv
      LEFT JOIN productos p ON p.id_producto = dv.producto_id
@@ -52,8 +50,6 @@ async function createVenta(data) {
     usuario_id,
     numero_factura,
     fecha_venta,
-    subtotal,
-    descuento,
     total,
     estado,
     observaciones,
@@ -65,19 +61,15 @@ async function createVenta(data) {
       usuario_id,
       numero_factura,
       fecha_venta,
-      subtotal,
-      descuento,
       total,
       estado,
       observaciones,
       forma_pago
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       usuario_id,
       numero_factura ?? null,
       fecha_venta,
-      subtotal ?? 0,
-      descuento ?? 0,
       total ?? 0,
       estado ?? 'pendiente',
       observaciones ?? null,
@@ -90,8 +82,6 @@ async function createVenta(data) {
     usuario_id,
     numero_factura: numero_factura ?? null,
     fecha_venta,
-    subtotal: subtotal ?? 0,
-    descuento: descuento ?? 0,
     total: total ?? 0,
     estado: estado ?? 'pendiente',
     observaciones: observaciones ?? null,
@@ -116,16 +106,6 @@ async function updateVenta(id, data) {
   if (data.fecha_venta !== undefined) {
     fields.push('fecha_venta = ?');
     values.push(data.fecha_venta);
-  }
-
-  if (data.subtotal !== undefined) {
-    fields.push('subtotal = ?');
-    values.push(data.subtotal);
-  }
-
-  if (data.descuento !== undefined) {
-    fields.push('descuento = ?');
-    values.push(data.descuento);
   }
 
   if (data.total !== undefined) {
