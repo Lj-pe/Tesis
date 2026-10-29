@@ -248,7 +248,6 @@ const createInventario = async (productId, overrides = {}) => {
     producto_id: productId,
     stock_actual: 10,
     stock_minimo: 2,
-    stock_seguridad: 1,
     stock_maximo: 50,
     estado_inventario: 'normal',
     ...overrides,
@@ -784,6 +783,7 @@ describe('Backend CRUD endpoints', () => {
     const res = await request(app).get('/api/productos');
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body[0]).not.toHaveProperty('stock_seguridad');
     await request(app).delete(`/api/productos/${product.id_producto}`);
   });
 
@@ -800,6 +800,7 @@ describe('Backend CRUD endpoints', () => {
     const res = await request(app).get(`/api/productos/${product.id_producto}`);
     expect(res.status).toBe(200);
     expect(res.body.id_producto).toBe(product.id_producto);
+    expect(res.body).not.toHaveProperty('stock_seguridad');
     await request(app).delete(`/api/productos/${product.id_producto}`);
   });
 
@@ -829,6 +830,7 @@ describe('Backend CRUD endpoints', () => {
     const res = await request(app).get('/api/inventarios');
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body[0]).not.toHaveProperty('stock_seguridad');
     await request(app).delete(`/api/inventarios/${inventory.id_inventario}`);
     await request(app).delete(`/api/productos/${product.id_producto}`);
   });
@@ -838,6 +840,7 @@ describe('Backend CRUD endpoints', () => {
     const product = await createProducto(category.id_categoria);
     const inventory = await createInventario(product.id_producto);
     expect(inventory).toHaveProperty('id_inventario');
+    expect(inventory).not.toHaveProperty('stock_seguridad');
     await request(app).delete(`/api/inventarios/${inventory.id_inventario}`);
     await request(app).delete(`/api/productos/${product.id_producto}`);
   });
@@ -849,6 +852,7 @@ describe('Backend CRUD endpoints', () => {
     const res = await request(app).get(`/api/inventarios/${inventory.id_inventario}`);
     expect(res.status).toBe(200);
     expect(res.body.id_inventario).toBe(inventory.id_inventario);
+    expect(res.body).not.toHaveProperty('stock_seguridad');
     await request(app).delete(`/api/inventarios/${inventory.id_inventario}`);
     await request(app).delete(`/api/productos/${product.id_producto}`);
   });

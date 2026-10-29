@@ -67,15 +67,6 @@ async function updateProducto(req, res) {
       return res.status(404).json({ message: 'Producto no encontrado' });
     }
 
-    if (
-      req.body.stock_seguridad !== undefined &&
-      (!Number.isInteger(req.body.stock_seguridad) || req.body.stock_seguridad < 0)
-    ) {
-      return res.status(400).json({
-        message: 'El campo stock_seguridad debe ser un entero mayor o igual a 0',
-      });
-    }
-
     const updated = await productoModel.updateProducto(req.params.id, req.body);
 
     if (!updated) {

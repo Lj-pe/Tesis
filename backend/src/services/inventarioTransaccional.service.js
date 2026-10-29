@@ -1,3 +1,5 @@
+const { calcularEstadoInventario } = require('../utils/inventario');
+
 async function obtenerInventarioPorProducto(connection, productoId) {
   const [rows] = await connection.query(
     'SELECT * FROM inventarios WHERE producto_id = ? LIMIT 1',
@@ -26,9 +28,36 @@ async function validarStockDisponible(connection, productoId, cantidad) {
 }
 
 async function actualizarStock(connection, inventarioId, delta) {
+  const [inventarios] = await connection.query(
+    `SELECT stock_actual, stock_minimo, estado_inventario
+     FROM inventarios
+     WHERE id_inventario = ?
+     FOR UPDATE`,
+    [inventarioId]
+  );
+  const inventario = inventarios[0];
+
+  if (!inventario) {
+    const error = new Error('No se pudo actualizar el inventario solicitado');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const stockActualizado = Number(inventario.stock_actual) + Number(delta);
+  const estadoInventario = calcularEstadoInventario(
+    stockActualizado,
+    inventario.stock_minimo,
+    inventario.estado_inventario
+  );
+
   const [result] = await connection.query(
-    'UPDATE inventarios SET stock_actual = stock_actual + ?, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id_inventario = ?',
-    [delta, inventarioId]
+    `UPDATE inventarios
+     SET stock_actual = ?,
+         estado_inventario = ?,
+         fecha_ultima_actualizacion = CURRENT_TIMESTAMP,
+         fecha_actualizacion = CURRENT_TIMESTAMP
+     WHERE id_inventario = ?`,
+    [stockActualizado, estadoInventario, inventarioId]
   );
 
   if (result.affectedRows === 0) {

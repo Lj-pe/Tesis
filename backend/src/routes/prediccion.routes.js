@@ -1,9 +1,20 @@
 const express = require('express');
 const prediccionController = require('../controllers/prediccion.controller');
+const demandaPrediccionController = require('../controllers/demandaPrediccion.controller');
 const authorizeModule = require('../middleware/authorizeModule');
 
 const router = express.Router();
 
+router.get(
+  '/api/predicciones/demanda/catalogo',
+  authorizeModule('Predicción'),
+  demandaPrediccionController.getCatalog
+);
+router.get(
+  '/api/predicciones/demanda/productos/:productId',
+  authorizeModule('Predicción'),
+  demandaPrediccionController.getProductForecast
+);
 router.get('/api/predicciones', authorizeModule('Predicción'), prediccionController.getAllPredicciones);
 router.get('/api/predicciones/:id', authorizeModule('Predicción'), prediccionController.getPrediccionById);
 router.post('/api/predicciones', authorizeModule('Predicción'), prediccionController.createPrediccion);

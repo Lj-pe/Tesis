@@ -11,6 +11,9 @@ const emptyForm = {
 
 const nuevaLinea = () => ({ producto_id: "", cantidad: "", precio_unitario: "" });
 
+const normalizarFormaPago = (formaPago) =>
+  ["Yape", "Plin", "Yape/Plin"].includes(formaPago) ? "Yape/Plin" : formaPago || "";
+
 function Ventas() {
   const [ventas, setVentas] = useState([]);
   const [productos, setProductos] = useState([]);
@@ -27,6 +30,8 @@ function Ventas() {
   const [ventaDetalle, setVentaDetalle] = useState(null);
   const [detalleLoading, setDetalleLoading] = useState(false);
   const [detalleError, setDetalleError] = useState("");
+  const [detalleSuccess, setDetalleSuccess] = useState("");
+  const [formaPagoDetalle, setFormaPagoDetalle] = useState("");
   const [estadoDetalle, setEstadoDetalle] = useState("");
   const [guardandoEstado, setGuardandoEstado] = useState(false);
 
@@ -80,11 +85,13 @@ function Ventas() {
   const abrirDetalle = async (ventaId) => {
     setDetalleLoading(true);
     setDetalleError("");
+    setDetalleSuccess("");
     setVentaDetalle(null);
 
     try {
       const data = await apiClient.get(`/ventas/${ventaId}`);
       setVentaDetalle(data);
+      setFormaPagoDetalle(normalizarFormaPago(data.forma_pago));
       setEstadoDetalle(data.estado || "");
     } catch (error) {
       setDetalleError(error.message || "No se pudo cargar el detalle de la venta.");
@@ -96,11 +103,19 @@ function Ventas() {
   const cerrarDetalle = () => {
     setVentaDetalle(null);
     setDetalleError("");
+    setDetalleSuccess("");
+    setFormaPagoDetalle("");
     setEstadoDetalle("");
   };
 
-  const guardarCambioEstado = async () => {
-    if (!ventaDetalle || guardandoEstado || estadoDetalle === ventaDetalle.estado) return;
+  const guardarCambiosVenta = async () => {
+    if (!ventaDetalle || guardandoEstado) return;
+
+    const formaPagoCambiada =
+      formaPagoDetalle !== normalizarFormaPago(ventaDetalle.forma_pago);
+    const estadoCambiado = estadoDetalle !== ventaDetalle.estado;
+
+    if (!formaPagoCambiada && !estadoCambiado) return;
 
     const estadosPermitidos = ventaDetalle.estado === "pendiente"
       ? ["pagada", "anulada"]
@@ -108,22 +123,48 @@ function Ventas() {
         ? ["anulada"]
         : [];
 
-    if (!estadosPermitidos.includes(estadoDetalle)) {
+    if (estadoCambiado && !estadosPermitidos.includes(estadoDetalle)) {
       return;
     }
 
     try {
+      setDetalleError("");
+      setDetalleSuccess("");
       setGuardandoEstado(true);
-      await apiClient.post(`/ventas/${ventaDetalle.id_venta}/estado`, {
-        estado: estadoDetalle,
-      });
-      const detalleActualizado = await apiClient.get(`/ventas/${ventaDetalle.id_venta}`);
-      setVentaDetalle(detalleActualizado);
-      setEstadoDetalle(detalleActualizado.estado || "");
-      await cargarDatos();
+      let detalleActualizado = ventaDetalle;
+      let formaPagoGuardada = false;
+
+      if (formaPagoCambiada) {
+        detalleActualizado = await apiClient.put(`/ventas/${ventaDetalle.id_venta}`, {
+          forma_pago: formaPagoDetalle || null,
+        });
+        setVentaDetalle(detalleActualizado);
+        setFormaPagoDetalle(normalizarFormaPago(detalleActualizado.forma_pago));
+        formaPagoGuardada = true;
+      }
+
+      if (estadoCambiado) {
+        try {
+          await apiClient.post(`/ventas/${ventaDetalle.id_venta}/estado`, {
+            estado: estadoDetalle,
+          });
+          detalleActualizado = await apiClient.get(`/ventas/${ventaDetalle.id_venta}`);
+          setVentaDetalle(detalleActualizado);
+          setFormaPagoDetalle(normalizarFormaPago(detalleActualizado.forma_pago));
+          setEstadoDetalle(detalleActualizado.estado || "");
+          await cargarDatos();
+        } catch (error) {
+          setEstadoDetalle(detalleActualizado.estado || "");
+          if (formaPagoGuardada) {
+            setDetalleSuccess("La forma de pago se guardó correctamente.");
+          }
+          throw error;
+        }
+      }
+
+      setDetalleSuccess("Cambios guardados correctamente.");
     } catch (error) {
-      setDetalleError(error.message || "No se pudo cambiar el estado de la venta.");
-      setEstadoDetalle(ventaDetalle.estado);
+      setDetalleError(error.message || "No se pudieron guardar los cambios de la venta.");
     } finally {
       setGuardandoEstado(false);
     }
@@ -260,7 +301,7 @@ function Ventas() {
                   <div><label className="form-label" htmlFor="venta-factura">Comprobante</label><input id="venta-factura" name="numero_factura" className="form-control" value={form.numero_factura} onChange={cambiarCampo} /></div>
                 </div>
                 <div><label className="form-label" htmlFor="venta-estado">Estado</label><select id="venta-estado" name="estado" className="form-control" value={form.estado} onChange={cambiarCampo}><option value="pendiente">Pendiente</option><option value="pagada">Pagada</option></select></div>
-                <div><label className="form-label" htmlFor="venta-forma-pago">Forma de pago</label><select id="venta-forma-pago" name="forma_pago" className="form-control" value={form.forma_pago} onChange={cambiarCampo}><option value="">Selecciona una forma de pago</option><option value="Efectivo">Efectivo</option><option value="Yape/Plin">Yape / Plin</option><option value="Tarjeta">Tarjeta</option></select></div>
+                <div><label className="form-label" htmlFor="venta-forma-pago">Forma de pago</label><select id="venta-forma-pago" name="forma_pago" className="form-control" value={form.forma_pago} onChange={cambiarCampo}><option value="">No especificada</option><option value="Efectivo">Efectivo</option><option value="Yape/Plin">Yape / Plin</option><option value="Tarjeta">Tarjeta</option></select></div>
                 <div><label className="form-label" htmlFor="venta-observaciones">Observaciones</label><textarea id="venta-observaciones" name="observaciones" rows="2" className="form-control" value={form.observaciones} onChange={cambiarCampo} /></div>
                 <div>
                   <div style={{ marginBottom: "0.5rem" }}><label className="form-label">Productos</label></div>
@@ -303,6 +344,7 @@ function Ventas() {
                 </div>
 
                 {detalleError && <div className="error-message" role="alert" style={{ marginBottom: "1rem" }}>{detalleError}</div>}
+                {detalleSuccess && <div className="success-badge" role="status" style={{ display: "block", marginBottom: "1rem" }}>{detalleSuccess}</div>}
 
                 <section style={{ marginBottom: "1.5rem" }}>
                   <h3 style={{ marginBottom: "0.75rem" }}>Información</h3>
@@ -311,7 +353,7 @@ function Ventas() {
                     <div><small>Usuario</small><strong style={{ display: "block" }}>{obtenerUsuario(ventaDetalle.usuario_id)}</strong></div>
                     <div><small>Fecha</small><strong style={{ display: "block" }}>{formatearFecha(ventaDetalle.fecha_venta)}</strong></div>
                     <div><small>Comprobante</small><strong style={{ display: "block" }}>{ventaDetalle.numero_factura || "Sin comprobante"}</strong></div>
-                    <div><small>Forma de pago</small><select className="form-control" value={ventaDetalle.forma_pago || ""} onChange={(event) => setVentaDetalle((ventaActual) => ({ ...ventaActual, forma_pago: event.target.value }))}><option value="">No especificada</option><option value="Efectivo">Efectivo</option><option value="Yape/Plin">Yape / Plin</option><option value="Tarjeta">Tarjeta</option></select></div>
+                    <div><small>Forma de pago</small><select className="form-control" value={formaPagoDetalle} onChange={(event) => { setFormaPagoDetalle(event.target.value); setDetalleError(""); setDetalleSuccess(""); }}><option value="">No especificada</option><option value="Efectivo">Efectivo</option><option value="Yape/Plin">Yape / Plin</option><option value="Tarjeta">Tarjeta</option></select></div>
                     <div><small>Estado</small><select className="form-control" value={estadoDetalle} disabled={ventaDetalle.estado === "anulada" || guardandoEstado} onChange={(event) => setEstadoDetalle(event.target.value)}>{ventaDetalle.estado === "pendiente" && <option value="pendiente">Pendiente</option>}{ventaDetalle.estado === "pagada" && <option value="pagada">Pagada</option>}{ventaDetalle.estado === "pendiente" && <option value="pagada">Pagada</option>}<option value="anulada">Anulada</option></select></div>
                   </div>
                   <div style={{ marginTop: "0.75rem" }}><small>Observaciones</small><div>{ventaDetalle.observaciones || "Sin observaciones"}</div></div>
@@ -347,7 +389,7 @@ function Ventas() {
                 </section>
 
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
-                  <button type="button" className="primary-button" disabled={guardandoEstado || estadoDetalle === ventaDetalle.estado || ventaDetalle.estado === "anulada"} onClick={guardarCambioEstado}>{guardandoEstado ? "Guardando..." : "Guardar cambio"}</button>
+                  <button type="button" className="primary-button" disabled={guardandoEstado || (formaPagoDetalle === normalizarFormaPago(ventaDetalle.forma_pago) && estadoDetalle === ventaDetalle.estado) || (estadoDetalle !== ventaDetalle.estado && ventaDetalle.estado === "anulada")} onClick={guardarCambiosVenta}>{guardandoEstado ? "Guardando..." : "Guardar cambio"}</button>
                   <button type="button" className="action-button" onClick={cerrarDetalle}>Cerrar</button>
                 </div>
               </>

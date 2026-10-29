@@ -3,7 +3,7 @@ const inventarioModel = require('../models/inventario.model');
 const ESTADOS_INVENTARIO_VALIDOS = ['normal', 'bajo', 'agotado', 'bloqueado'];
 
 function validarInventarioCreate(data) {
-  const { producto_id, stock_actual, stock_minimo, stock_seguridad, stock_maximo, estado_inventario } = data;
+  const { producto_id, stock_actual, stock_minimo, stock_maximo, estado_inventario } = data;
 
   if (producto_id === undefined || producto_id === null || producto_id === '') {
     return 'El campo producto_id es obligatorio';
@@ -19,10 +19,6 @@ function validarInventarioCreate(data) {
 
   if (stock_minimo !== undefined && (!Number.isInteger(stock_minimo) || stock_minimo < 0)) {
     return 'El campo stock_minimo debe ser un entero mayor o igual a 0';
-  }
-
-  if (stock_seguridad !== undefined && stock_seguridad !== null && (!Number.isInteger(stock_seguridad) || stock_seguridad < 0)) {
-    return 'El campo stock_seguridad debe ser un entero mayor o igual a 0 o NULL';
   }
 
   if (stock_maximo !== undefined && stock_maximo !== null && (!Number.isInteger(stock_maximo) || stock_maximo < 0)) {
@@ -42,7 +38,7 @@ function validarInventarioCreate(data) {
 }
 
 function validarInventarioUpdate(data) {
-  const { producto_id, stock_actual, stock_minimo, stock_seguridad, stock_maximo, estado_inventario } = data;
+  const { producto_id, stock_actual, stock_minimo, stock_maximo, estado_inventario } = data;
 
   if (producto_id !== undefined && producto_id !== null && producto_id !== '' && (!Number.isInteger(producto_id) || producto_id <= 0)) {
     return 'El campo producto_id debe ser un entero positivo';
@@ -54,10 +50,6 @@ function validarInventarioUpdate(data) {
 
   if (stock_minimo !== undefined && (!Number.isInteger(stock_minimo) || stock_minimo < 0)) {
     return 'El campo stock_minimo debe ser un entero mayor o igual a 0';
-  }
-
-  if (stock_seguridad !== undefined && stock_seguridad !== null && (!Number.isInteger(stock_seguridad) || stock_seguridad < 0)) {
-    return 'El campo stock_seguridad debe ser un entero mayor o igual a 0 o NULL';
   }
 
   if (stock_maximo !== undefined && stock_maximo !== null && (!Number.isInteger(stock_maximo) || stock_maximo < 0)) {
@@ -105,7 +97,6 @@ async function createInventario(req, res) {
       producto_id,
       stock_actual,
       stock_minimo,
-      stock_seguridad,
       stock_maximo,
       estado_inventario,
     } = req.body;
@@ -114,7 +105,6 @@ async function createInventario(req, res) {
       producto_id,
       stock_actual,
       stock_minimo,
-      stock_seguridad,
       stock_maximo,
       estado_inventario,
     });
@@ -127,7 +117,6 @@ async function createInventario(req, res) {
       producto_id,
       stock_actual,
       stock_minimo,
-      stock_seguridad,
       stock_maximo,
       estado_inventario,
     });

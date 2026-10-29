@@ -2,11 +2,7 @@ const pool = require('../config/database');
 
 async function getAllProductos() {
   const [rows] = await pool.query(
-    `SELECT p.*,
-            (SELECT i.stock_seguridad
-             FROM inventarios i
-             WHERE i.producto_id = p.id_producto
-             LIMIT 1) AS stock_seguridad
+    `SELECT p.*
      FROM productos p
      ORDER BY p.id_producto ASC`
   );
@@ -15,11 +11,7 @@ async function getAllProductos() {
 
 async function getProductoById(id) {
   const [rows] = await pool.query(
-    `SELECT p.*,
-            (SELECT i.stock_seguridad
-             FROM inventarios i
-             WHERE i.producto_id = p.id_producto
-             LIMIT 1) AS stock_seguridad
+    `SELECT p.*
      FROM productos p
      WHERE p.id_producto = ?`,
     [id]
@@ -175,7 +167,7 @@ async function updateProducto(id, data) {
       fields.push('fecha_inactivacion = NULL');
     }
 
-    if (fields.length === 0 && data.stock_seguridad === undefined) {
+    if (fields.length === 0) {
       await connection.rollback();
       return null;
     }
@@ -187,28 +179,6 @@ async function updateProducto(id, data) {
       `UPDATE productos SET ${fields.join(', ')} WHERE id_producto = ?`,
       values
     );
-
-    if (data.stock_seguridad !== undefined) {
-      const [inventarioRows] = await connection.query(
-        'SELECT id_inventario FROM inventarios WHERE producto_id = ? LIMIT 1 FOR UPDATE',
-        [id]
-      );
-
-      if (inventarioRows.length > 0) {
-        await connection.query(
-          `UPDATE inventarios
-           SET stock_seguridad = ?, fecha_actualizacion = CURRENT_TIMESTAMP
-           WHERE id_inventario = ?`,
-          [data.stock_seguridad, inventarioRows[0].id_inventario]
-        );
-      } else {
-        await connection.query(
-          `INSERT INTO inventarios (producto_id, stock_seguridad)
-           VALUES (?, ?)`,
-          [id, data.stock_seguridad]
-        );
-      }
-    }
 
     await connection.commit();
     return true;
