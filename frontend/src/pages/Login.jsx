@@ -5,7 +5,7 @@ import apiClient from "../api/client";
 function Login() {
   const navigate = useNavigate();
 
-  const [correo, setCorreo] = useState("");
+  const [identificador, setIdentificador] = useState("");
   const [password, setPassword] = useState("");
   const [mostrarPassword, setMostrarPassword] = useState(false);
   const [error, setError] = useState("");
@@ -15,13 +15,16 @@ function Login() {
 
     setError("");
 
-    if (!correo.includes("@")) {
-      setError("Ingrese un correo electrónico válido.");
+    const usuarioOCorreo = identificador.trim();
+    if (!usuarioOCorreo) {
+      setError("Ingrese su usuario o correo electrónico.");
       return;
     }
 
     try {
-      const payload = { email: correo, password };
+      const payload = usuarioOCorreo.includes("@")
+        ? { email: usuarioOCorreo, password }
+        : { username: usuarioOCorreo, password };
       const data = await apiClient.post("/auth/login", payload, { skipAuth: true });
 
       localStorage.setItem("alanis_token", data.token);
@@ -29,7 +32,7 @@ function Login() {
 
       navigate("/dashboard");
     } catch (err) {
-      setError(err.message || "Correo o contraseña incorrectos.");
+      setError(err.message || "Usuario, correo o contraseña incorrectos.");
     }
   };
 
@@ -157,7 +160,7 @@ function Login() {
               </div>
 
               <div className="login-field">
-                <label htmlFor="login-email">Correo electrónico</label>
+                <label htmlFor="login-identifier">Usuario o correo electrónico</label>
                 <div className="login-input-wrap">
                   <span className="login-input-icon" aria-hidden="true">
                     <svg viewBox="0 0 24 24" fill="none">
@@ -166,11 +169,12 @@ function Login() {
                     </svg>
                   </span>
                   <input
-                    id="login-email"
-                    type="email"
-                    placeholder="Ingrese su correo electrónico"
-                    value={correo}
-                    onChange={(e) => setCorreo(e.target.value)}
+                    id="login-identifier"
+                    type="text"
+                    autoComplete="username"
+                    placeholder="Ingrese su usuario o correo electrónico"
+                    value={identificador}
+                    onChange={(e) => setIdentificador(e.target.value)}
                     required
                   />
                 </div>

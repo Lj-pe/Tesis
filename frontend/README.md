@@ -29,6 +29,11 @@ npm run build
 - `npm run lint`: ejecuta ESLint.
 - `npm run build`: genera la compilación de producción.
 
+## Inicio de sesión
+
+El formulario permite ingresar con el nombre de usuario o el correo electrónico
+registrado, junto con la contraseña.
+
 ## Módulos
 
 - Dashboard
