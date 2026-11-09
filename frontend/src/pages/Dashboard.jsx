@@ -1,241 +1,325 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import apiClient from "../api/client";
-import calcularEstadoInventario from "../utils/inventario";
+
+const LIMA_TIME_ZONE = "America/Lima";
+const MOVEMENT_LABELS = {
+  venta: "Venta",
+  anulacion_venta: "Anulación de venta",
+  recepcion: "Recepción",
+  ajuste: "Ajuste",
+};
+
+const STAT_ICONS = {
+  products: <path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5v-9Z M4.5 7.7 12 12l7.5-4.3 M12 12v9 M8 5.3l8 4.5" />,
+  stock: <path d="m12 3 8 4.5-8 4.5-8-4.5L12 3Z M4 12l8 4.5 8-4.5 M4 16.5 12 21l8-4.5 M12 12v4.5" />,
+  sales: <path d="M4 18.5 9 13l3.5 3.5L20 8 M14.5 8H20v5.5" />,
+  purchases: <path d="M4 5h2l2.2 10.1a2 2 0 0 0 2 1.6h6.9a2 2 0 0 0 1.9-1.4L21 9H7 M11 20h.01 M17 20h.01" />,
+};
+
+function StatIcon({ type }) {
+  return <span className="dashboard-stat-icon" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      {STAT_ICONS[type]}
+    </svg>
+  </span>;
+}
+
+function SectionIcon({ type }) {
+  const paths = {
+    chart: <path d="M4 19V5m0 14h16M7 15l4-4 3 2 5-6M16 7h3v3" />,
+    warning: <path d="M10.3 4.5 2.9 17.3A1.8 1.8 0 0 0 4.5 20h15a1.8 1.8 0 0 0 1.6-2.7L13.7 4.5a2 2 0 0 0-3.4 0ZM12 9v4m0 3h.01" />,
+    clock: <path d="M12 8v4l2.5 1.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />,
+  };
+  return <span className={`dashboard-section-icon dashboard-section-icon-${type}`} aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      {paths[type]}
+    </svg>
+  </span>;
+}
+
+function getDateParts(date, timeZone) {
+  return Object.fromEntries(new Intl.DateTimeFormat("en", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date).filter((part) => part.type !== "literal").map(({ type, value }) => [type, value]));
+}
+
+function getLastSevenDays() {
+  const { year, month, day } = getDateParts(new Date(), LIMA_TIME_ZONE);
+  const lastDay = new Date(`${year}-${month}-${day}T00:00:00Z`);
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(lastDay);
+    date.setUTCDate(lastDay.getUTCDate() - (6 - index));
+    const key = date.toISOString().slice(0, 10);
+    const parts = new Intl.DateTimeFormat("es-PE", {
+      timeZone: "UTC",
+      weekday: "short",
+      day: "2-digit",
+    }).formatToParts(date);
+    const weekday = parts.find((part) => part.type === "weekday")?.value.replace(".", "") || "";
+    const dayNumber = parts.find((part) => part.type === "day")?.value || "";
+    return { date: key, label: `${weekday} ${dayNumber}` };
+  });
+}
+
+function dateKey(value) {
+  if (typeof value === "string") return value.slice(0, 10);
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const { year, month, day } = getDateParts(value, LIMA_TIME_ZONE);
+    return `${year}-${month}-${day}`;
+  }
+  return "";
+}
+
+function toCents(value) {
+  const match = /^(-?)(\d+)(?:\.(\d*))?$/.exec(String(value ?? "0"));
+  if (!match) return 0n;
+  const fraction = (match[3] || "").padEnd(2, "0").slice(0, 2);
+  const cents = BigInt(match[2]) * 100n + BigInt(fraction || "0");
+  return match[1] ? -cents : cents;
+}
+
+function formatCurrency(cents) {
+  return new Intl.NumberFormat("es-PE", {
+    style: "currency",
+    currency: "PEN",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(cents) / 100);
+}
+
+function formatChartDate(date) {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Intl.DateTimeFormat("es-PE", {
+    timeZone: "UTC",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(new Date(Date.UTC(year, month - 1, day)));
+}
+
+function niceStep(maximum) {
+  if (maximum <= 0) return 1;
+  const raw = maximum / 4;
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  const normalized = raw / magnitude;
+  const factor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return factor * magnitude;
+}
+
+function SalesChart({ days, salesByDay, loading }) {
+  const [activePoint, setActivePoint] = useState(null);
+  const chartData = useMemo(() => {
+    const totals = new Map(salesByDay.map((row) => [dateKey(row.fecha_comercial), toCents(row.ingresos)]));
+    return days.map((day) => ({ ...day, cents: totals.get(day.date) || 0n }));
+  }, [days, salesByDay]);
+
+  const maximum = Math.max(0, ...chartData.map((item) => Number(item.cents) / 100));
+  const step = niceStep(maximum);
+  const axisMaximum = step * 4;
+  const bounds = { width: 640, height: 270, left: 76, right: 18, top: 16, bottom: 42 };
+  const plotWidth = bounds.width - bounds.left - bounds.right;
+  const plotHeight = bounds.height - bounds.top - bounds.bottom;
+  const x = (index) => bounds.left + (plotWidth * index) / Math.max(chartData.length - 1, 1);
+  const y = (value) => bounds.top + plotHeight - (value / axisMaximum) * plotHeight;
+  const points = chartData.map((item, index) => `${x(index)},${y(Number(item.cents) / 100)}`).join(" ");
+  const areaPoints = `${x(0)},${bounds.height - bounds.bottom} ${points} ${x(chartData.length - 1)},${bounds.height - bounds.bottom}`;
+  const activeItem = activePoint === null ? null : chartData[activePoint];
+  const tooltipX = activePoint === null ? 0 : Math.min(
+    Math.max(x(activePoint) - 85, bounds.left),
+    bounds.width - bounds.right - 170,
+  );
+  const pointY = activePoint === null ? 0 : y(Number(activeItem.cents) / 100);
+  const tooltipY = Math.max(bounds.top + 6, pointY - 58);
+
+  return <div className="dashboard-chart-scroll">
+    {loading ? <div className="dashboard-empty">Cargando ingresos...</div>
+      : <svg className="dashboard-sales-chart" viewBox={`0 0 ${bounds.width} ${bounds.height}`} role="img" aria-label="Ingresos diarios por ventas realizadas en los últimos siete días">
+        <defs>
+          <linearGradient id="dashboard-sales-gradient" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="var(--primary)" stopOpacity=".24" />
+            <stop offset="100%" stopColor="var(--primary)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {[0, 1, 2, 3, 4].map((tick) => {
+          const value = step * tick;
+          return <g key={tick}>
+            <line className="dashboard-chart-grid" x1={bounds.left} x2={bounds.width - bounds.right} y1={y(value)} y2={y(value)} />
+            <text className="dashboard-chart-axis" x={bounds.left - 10} y={y(value) + 4} textAnchor="end">
+              {`S/ ${new Intl.NumberFormat("es-PE", { maximumFractionDigits: 2 }).format(value)}`}
+            </text>
+          </g>;
+        })}
+        <polygon className="dashboard-chart-area" points={areaPoints} />
+        <polyline className="dashboard-chart-line" points={points} />
+        {chartData.map((item, index) => <g key={item.date}>
+          <circle
+            className="dashboard-chart-point"
+            cx={x(index)}
+            cy={y(Number(item.cents) / 100)}
+            r="5"
+            tabIndex="0"
+            role="img"
+            aria-label={`${item.label}: ${formatCurrency(item.cents)}`}
+            onMouseEnter={() => setActivePoint(index)}
+            onMouseLeave={() => setActivePoint(null)}
+            onFocus={() => setActivePoint(index)}
+            onBlur={() => setActivePoint(null)}
+          >
+          </circle>
+          <text className="dashboard-chart-day" x={x(index)} y={bounds.height - 12} textAnchor="middle">{item.label}</text>
+        </g>)}
+        {activeItem && <g className="dashboard-chart-tooltip" transform={`translate(${tooltipX} ${tooltipY})`} pointerEvents="none">
+          <rect width="170" height="48" rx="8" />
+          <text className="dashboard-chart-tooltip-date" x="12" y="19">{formatChartDate(activeItem.date)}</text>
+          <text className="dashboard-chart-tooltip-value" x="12" y="37">{formatCurrency(activeItem.cents)}</text>
+        </g>}
+      </svg>}
+    {!loading && chartData.every((item) => item.cents === 0n) && <p className="dashboard-chart-note">Sin ingresos por ventas realizadas en este período.</p>}
+  </div>;
+}
+
+function formatMovementDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: LIMA_TIME_ZONE,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const part = (type) => parts.find((item) => item.type === type)?.value || "";
+  return `${part("day")}/${part("month")}/${part("year")} · ${part("hour")}:${part("minute")}`;
+}
+
+function formatVariation(value) {
+  try {
+    const units = BigInt(value);
+    return `${units < 0n ? "−" : "+"}${units < 0n ? -units : units} unidades`;
+  } catch {
+    return "—";
+  }
+}
+
+function variationClass(value) {
+  try {
+    const units = BigInt(value);
+    return units < 0n ? "is-outgoing" : units > 0n ? "is-incoming" : "is-neutral";
+  } catch {
+    return "is-neutral";
+  }
+}
+
+function formatInteger(value) {
+  try {
+    return new Intl.NumberFormat("es-PE").format(BigInt(value ?? 0));
+  } catch {
+    return "—";
+  }
+}
 
 function Dashboard() {
-  const [dashboard, setDashboard] = useState({
-    productos: [],
-    inventarios: [],
-    ventas: [],
-    compras: [],
-    movimientos: [],
-  });
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
+  const [days] = useState(getLastSevenDays);
+  const [data, setData] = useState({ stats: null, salesByDay: [], movements: [] });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    const cargarDashboard = async () => {
-      try {
-        const [productos, inventarios, ventas, compras, movimientos] = await Promise.all([
-          apiClient.get("/productos"),
-          apiClient.get("/inventarios"),
-          apiClient.get("/ventas"),
-          apiClient.get("/compras"),
-          apiClient.get("/movimientos-inventario"),
-        ]);
+    const desde = days[0].date;
+    const hasta = days[days.length - 1].date;
+    apiClient.get(`/dashboard?desde=${desde}&hasta=${hasta}`)
+      .then((result) => setData({
+        stats: result.stats || null,
+        salesByDay: Array.isArray(result.salesByDay) ? result.salesByDay : [],
+        movements: Array.isArray(result.movements) ? result.movements : [],
+      }))
+      .catch((requestError) => setError(requestError.message || "No se pudieron cargar los datos del dashboard."))
+      .finally(() => setLoading(false));
+  }, [days]);
 
-        setDashboard({
-          productos: Array.isArray(productos) ? productos : [],
-          inventarios: Array.isArray(inventarios) ? inventarios : [],
-          ventas: Array.isArray(ventas) ? ventas : [],
-          compras: Array.isArray(compras) ? compras : [],
-          movimientos: Array.isArray(movimientos) ? movimientos : [],
-        });
-      } catch (error) {
-        setLoadError(error.message || "No se pudieron cargar los datos del dashboard.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const stats = data.stats;
 
-    cargarDashboard();
-  }, []);
+  return <>
+    <div className="page-header"><div><h1 className="category-page-title"><svg className="category-display-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 19V5m0 14h16M7 15l4-4 3 2 5-6M16 7h3v3" /></svg>Dashboard</h1><p>Resumen operativo del minimarket.</p></div></div>
+    {error && <div className="error-message" role="alert">{error}</div>}
 
-  const ahora = new Date();
-  const inicioMesActual = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
-  const esVentaPagada = (venta) => venta.estado === "pagada";
-  const obtenerFecha = (fecha) => {
-    if (!fecha) return null;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
-      return new Date(`${fecha}T00:00:00`);
-    }
-    return new Date(fecha);
-  };
-  const ventasMesActual = dashboard.ventas.filter((venta) => {
-    const fecha = obtenerFecha(venta.fecha_venta);
-    return esVentaPagada(venta) && fecha >= inicioMesActual && fecha < ahora;
-  });
-  const totalVentasActual = ventasMesActual.reduce((total, venta) => total + Number(venta.total || 0), 0);
-  const stockTotal = dashboard.inventarios.reduce((total, inventario) => total + Number(inventario.stock_actual || 0), 0);
-  const inventariosConEstadoCalculado = dashboard.inventarios.map((inventario) => ({
-    ...inventario,
-    estado_calculado: calcularEstadoInventario(
-      inventario.stock_actual,
-      inventario.stock_minimo,
-      inventario.estado_inventario
-    ),
-  }));
-  const inventariosBajos = inventariosConEstadoCalculado.filter((inventario) => inventario.estado_calculado === "bajo");
-  const inventariosAlerta = inventariosConEstadoCalculado.filter((inventario) => ["bajo", "agotado"].includes(inventario.estado_calculado));
-  const inventariosPorId = new Map(dashboard.inventarios.map((inventario) => [inventario.id_inventario, inventario]));
-  const productosPorId = new Map(dashboard.productos.map((producto) => [producto.id_producto, producto]));
-  const demandaPorProducto = dashboard.movimientos
-    .filter((movimiento) => movimiento.tipo_movimiento === "salida" && movimiento.estado === "confirmado")
-    .reduce((acumulado, movimiento) => {
-      const inventario = inventariosPorId.get(movimiento.inventario_id);
-      if (!inventario) return acumulado;
-      const productoId = inventario.producto_id;
-      acumulado.set(productoId, (acumulado.get(productoId) || 0) + Number(movimiento.cantidad || 0));
-      return acumulado;
-    }, new Map());
-  const productosDemanda = Array.from(demandaPorProducto.entries())
-    .map(([productoId, cantidad]) => ({ producto: productosPorId.get(productoId), cantidad }))
-    .filter((item) => item.producto)
-    .sort((a, b) => b.cantidad - a.cantidad)
-    .slice(0, 5);
-  return (
-    <>
-      <div className="page-header">
-        <div>
-          <h1>Dashboard</h1>
-          <p>Resumen general del negocio.</p>
+    <div className="stats-grid">
+      <article className="stat-card dashboard-stat-card dashboard-stat-products">
+        <div className="dashboard-stat-heading"><StatIcon type="products" /><span>Productos activos</span></div>
+        <strong>{loading || !stats ? "—" : formatInteger(stats.productos_activos)}</strong>
+        <small className="dashboard-stat-description">Productos habilitados para la venta</small>
+      </article>
+      <article className="stat-card dashboard-stat-card dashboard-stat-stock">
+        <div className="dashboard-stat-heading"><StatIcon type="stock" /><span>Unidades en stock</span></div>
+        <strong>{loading || !stats ? "—" : formatInteger(stats.unidades_en_stock)}</strong>
+        <small className="dashboard-stat-description">Unidades disponibles en inventario</small>
+      </article>
+      <article className="stat-card dashboard-stat-card dashboard-stat-sales">
+        <div className="dashboard-stat-heading"><StatIcon type="sales" /><span>Ventas realizadas</span></div>
+        <strong>{loading || !stats ? "—" : formatInteger(stats.ventas_realizadas)}</strong>
+        <small className="dashboard-stat-description">Operaciones completadas</small>
+      </article>
+      <article className="stat-card dashboard-stat-card dashboard-stat-purchases">
+        <div className="dashboard-stat-heading"><StatIcon type="purchases" /><span>Compras por recibir</span></div>
+        <strong>{loading || !stats ? "—" : formatInteger(stats.compras_por_recibir)}</strong>
+        <small className="dashboard-stat-description">Compras con saldo pendiente</small>
+      </article>
+    </div>
+
+    <section className="dashboard-grid">
+      <article className="panel dashboard-panel">
+        <div className="panel-header dashboard-section-heading">
+          <SectionIcon type="chart" />
+          <h3>Ingresos por ventas — últimos 7 días</h3>
         </div>
+        <SalesChart days={days} salesByDay={data.salesByDay} loading={loading} />
+      </article>
+      <article className="panel dashboard-panel">
+        <div className="panel-header dashboard-panel-heading">
+          <div className="dashboard-heading-content">
+            <SectionIcon type="warning" />
+            <h3>Productos con stock bajo</h3>
+            <span className="dashboard-count">(0)</span>
+          </div>
+          <Link className="dashboard-link" to="/inventario">Ver todos</Link>
+        </div>
+        <div className="dashboard-stock-scroll">
+          <p className="dashboard-empty">No hay productos clasificados como stock bajo</p>
+        </div>
+      </article>
+    </section>
+
+    <section className="panel dashboard-panel dashboard-movements-panel">
+      <div className="panel-header dashboard-panel-heading">
+        <div className="dashboard-heading-content">
+          <SectionIcon type="clock" />
+          <h3>Movimientos recientes</h3>
+          <span className="dashboard-count">({data.movements.length})</span>
+        </div>
+        <Link className="dashboard-link" to="/movimientos">Ver todos</Link>
       </div>
-
-      {loadError && <div className="error-message" role="alert" style={{ marginBottom: "1rem" }}>{loadError}</div>}
-
-      <div className="stats-grid">
-
-        <div className="stat-card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span>Productos registrados</span>
-            <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--primary)" }}>
-              <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" />
-              <path d="m4.5 7.8 7.5 4.3 7.5-4.3M12 12v9" />
-            </svg>
-          </div>
-          <strong>{isLoading || loadError ? "-" : dashboard.productos.length}</strong>
-          <small>{loadError ? "Datos no disponibles" : "Productos registrados"}</small>
-        </div>
-
-        <div className="stat-card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span>Stock total</span>
-            <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--info)" }}>
-              <path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z" />
-              <path d="m3.5 7.8 8.5 4.3 8.5-4.3M12 12v9" />
-              <path d="m7.5 5.3 9 4.6" />
-            </svg>
-          </div>
-          <strong>{isLoading || loadError ? "-" : stockTotal.toLocaleString("es-PE")}</strong>
-          <small>{loadError ? "Datos no disponibles" : "Unidades disponibles"}</small>
-        </div>
-
-        <div className="stat-card warning">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span>Stock bajo</span>
-            <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--warning)" }}>
-              <path d="M12 3 2.8 19h18.4L12 3Z" />
-              <path d="M12 9v4M12 16.5h.01" />
-            </svg>
-          </div>
-          <strong>{isLoading || loadError ? "-" : inventariosBajos.length}</strong>
-          <small>{loadError ? "Datos no disponibles" : "Necesitan reposición"}</small>
-        </div>
-
-        <div className="stat-card success">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span>Ventas del mes</span>
-            <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--success)" }}>
-              <path d="M4 19V5M4 19h17" />
-              <path d="m7 15 4-4 3 2 6-7" />
-              <path d="M16 6h4v4" />
-            </svg>
-          </div>
-          <strong>{isLoading || loadError ? "-" : `S/ ${totalVentasActual.toFixed(2)}`}</strong>
-          <small>{loadError ? "Datos no disponibles" : "Ventas pagadas del mes"}</small>
-        </div>
-
+      <div className="dashboard-movements-scroll">
+        <div className="table-responsive"><table>
+          <thead><tr><th>Fecha y hora</th><th>Producto</th><th>Movimiento</th><th>Variación</th></tr></thead>
+          <tbody>{loading ? <tr><td colSpan="4">Cargando movimientos...</td></tr>
+            : data.movements.length === 0 ? <tr><td colSpan="4">No hay movimientos registrados.</td></tr>
+              : data.movements.map((item) => <tr key={String(item.id)}>
+                <td>{formatMovementDate(item.ocurrido_en)}</td>
+                <td>{item.nombre_producto}</td>
+                <td><span className={`dashboard-movement-badge is-${item.tipo}`}>{MOVEMENT_LABELS[item.tipo] || item.tipo}</span></td>
+                <td><span className={`dashboard-movement-variation ${variationClass(item.variacion_unidades)}`}>{formatVariation(item.variacion_unidades)}</span></td>
+              </tr>)}
+          </tbody>
+        </table></div>
       </div>
-
-      <div className="dashboard-grid">
-
-        <div className="panel">
-          <div className="panel-header">
-            <h3>Productos con mayor demanda</h3>
-          </div>
-
-          <div className="dashboard-table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Producto</th>
-                <th>Unidades vendidas</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {loadError ? (
-                <tr><td colSpan="3">Datos no disponibles por un error de carga.</td></tr>
-              ) : isLoading ? (
-                <tr><td colSpan="3">Cargando demanda...</td></tr>
-              ) : productosDemanda.length === 0 ? (
-                <tr><td colSpan="3">No hay salidas confirmadas.</td></tr>
-              ) : productosDemanda.map(({ producto, cantidad }, index) => (
-                <tr key={producto.id_producto}>
-                  <td>{index + 1}</td>
-                  <td>{producto.nombre}</td>
-                  <td>
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                      <span>{cantidad}</span>
-                      <span aria-hidden="true" style={{ display: "block", flex: "1", height: "7px", minWidth: "48px", overflow: "hidden", borderRadius: "4px", background: "var(--surface-secondary)" }}>
-                        <span style={{ display: "block", width: `${productosDemanda[0]?.cantidad ? (cantidad / productosDemanda[0].cantidad) * 100 : 0}%`, height: "100%", borderRadius: "inherit", background: "var(--primary)" }} />
-                      </span>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        </div>
-
-        <div className="panel">
-
-          <div className="panel-header">
-            <h3>Alertas de inventario</h3>
-          </div>
-
-          <div className="dashboard-table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Producto</th>
-                <th>Stock actual</th>
-                <th>Stock mínimo</th>
-                <th>Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loadError ? (
-                <tr><td colSpan="5">Datos no disponibles por un error de carga.</td></tr>
-              ) : isLoading ? (
-                <tr><td colSpan="5">Cargando alertas...</td></tr>
-              ) : inventariosAlerta.length === 0 ? (
-                <tr><td colSpan="5">No hay alertas de inventario.</td></tr>
-              ) : inventariosAlerta.map((inventario, index) => {
-                const producto = productosPorId.get(inventario.producto_id);
-                return (
-                  <tr key={inventario.id_inventario}>
-                    <td>{index + 1}</td>
-                    <td>{producto?.nombre || "Producto no encontrado"}</td>
-                    <td>{inventario.stock_actual}</td>
-                    <td>{inventario.stock_minimo ?? "No definido"}</td>
-                    <td><span className="badge danger-badge">{inventario.estado_calculado === "agotado" ? "Sin stock" : "Stock bajo"}</span></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          </div>
-
-        </div>
-
-      </div>
-    </>
-  );
+    </section>
+  </>;
 }
 
 export default Dashboard;

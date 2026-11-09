@@ -17,14 +17,12 @@ function Login() {
 
     const usuarioOCorreo = identificador.trim();
     if (!usuarioOCorreo) {
-      setError("Ingrese su usuario o correo electrónico.");
+      setError("Ingrese su nombre de usuario.");
       return;
     }
 
     try {
-      const payload = usuarioOCorreo.includes("@")
-        ? { email: usuarioOCorreo, password }
-        : { username: usuarioOCorreo, password };
+      const payload = { nombre_usuario: usuarioOCorreo, password };
       const data = await apiClient.post("/auth/login", payload, { skipAuth: true });
 
       localStorage.setItem("alanis_token", data.token);
@@ -50,8 +48,8 @@ function Login() {
                 </svg>
               </div>
               <div className="login-brand-copy">
-                <strong>ALANIS</strong>
-                <span>BOUTIQUE LIBRERÍA BAZAR</span>
+                    <strong>MINIMARKET</strong>
+                    <span>GESTIÓN COMERCIAL</span>
               </div>
             </div>
 
@@ -64,8 +62,7 @@ function Login() {
                 <span>Gestión Comercial</span>
               </h1>
               <p>
-                Controla productos, inventario, compras y ventas de Boutique
-                Librería Bazar Alanis desde un solo lugar.
+                Controla productos, existencias, compras y ventas desde un solo lugar.
               </p>
             </div>
 
@@ -105,7 +102,7 @@ function Login() {
                     <path d="M2 27c0-5.2 4.3-9 10-9s10 3.8 10 9H2ZM20 20c5-1.8 10 1.1 10 6v1h-6c0-2.8-1.5-5.3-4-7Z" />
                   </svg>
                 </span>
-                <span><strong>Usuarios y roles</strong><small>Acceso seguro</small></span>
+                <span><strong>Acceso seguro</strong><small>Cuenta de usuario</small></span>
               </article>
             </div>
 
@@ -160,7 +157,7 @@ function Login() {
               </div>
 
               <div className="login-field">
-                <label htmlFor="login-identifier">Usuario o correo electrónico</label>
+                <label htmlFor="login-identifier">Nombre de usuario</label>
                 <div className="login-input-wrap">
                   <span className="login-input-icon" aria-hidden="true">
                     <svg viewBox="0 0 24 24" fill="none">
@@ -172,7 +169,7 @@ function Login() {
                     id="login-identifier"
                     type="text"
                     autoComplete="username"
-                    placeholder="Ingrese su usuario o correo electrónico"
+                    placeholder="Ingrese su nombre de usuario"
                     value={identificador}
                     onChange={(e) => setIdentificador(e.target.value)}
                     required

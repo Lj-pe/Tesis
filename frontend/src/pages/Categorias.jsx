@@ -3,9 +3,101 @@ import apiClient from "../api/client";
 
 const emptyForm = {
   nombre: "",
-  descripcion: "",
-  estado: "activo",
+  activa: true,
 };
+
+function CategoryFieldLabel({ htmlFor, icon, children }) {
+  const iconPath = icon === "name"
+    ? <path d="M4 7h16M4 12h10M4 17h13" />
+    : <path d="M12 3v9l6.4 3.7M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />;
+  return <label className="form-label product-form-label" htmlFor={htmlFor}>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {iconPath}
+    </svg>
+    {children}
+  </label>;
+}
+
+function CategoryActionIcon({ type }) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {type === "edit"
+      ? <path d="m14 5 5 5M4 20l4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z M13 6l5 5" />
+      : type === "activate"
+        ? <path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Zm-4.5-10 3 3 6-6" />
+        : <path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Zm-7.1-2.9 14.2-14.2" />}
+  </svg>;
+}
+
+function CategoryDisplayIcon({ type }) {
+  const paths = {
+    category: <path d="M3 6h7l2 2h9v10H3z M3 9h18" />,
+    products: <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Zm-8 4.5 8 4.5 8-4.5M12 12v9" />,
+    status: <path d="M12 3v9l6.4 3.7M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />,
+    actions: <path d="M4 6h16M4 12h16M4 18h16" />,
+  };
+  return <svg className="category-display-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {paths[type]}
+  </svg>;
+}
+
+function CategoryColumnHeading({ icon, children }) {
+  return <span className="category-table-heading"><CategoryDisplayIcon type={icon} />{children}</span>;
+}
+
+function CategoryFormModal({ editing, form, setForm, formError, manejarCambio, enviarFormulario, cerrarFormulario }) {
+  const title = editing ? "Editar categoría" : "Nueva categoría";
+  return <div className="product-modal-backdrop">
+    <section
+      className={`panel product-form-modal category-form-modal ${editing ? "is-editing" : ""}`}
+      style={editing ? { "--category-name-width": `${Math.max(30, form.nombre.length + 3)}ch` } : undefined}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="category-form-title"
+    >
+      <div className="page-header product-form-header">
+        <div>
+          <h1 id="category-form-title">{title}</h1>
+          <p>{editing ? "Actualiza la información de la categoría." : "Registra una nueva categoría del sistema."}</p>
+        </div>
+      </div>
+
+      {formError && <div className="error-message" role="alert" style={{ marginBottom: "1rem" }}>{formError}</div>}
+
+      <form onSubmit={enviarFormulario}>
+        <div className="product-form-fields category-form-fields">
+          <div className="product-form-field">
+            <CategoryFieldLabel htmlFor="categoria-nombre" icon="name">Nombre</CategoryFieldLabel>
+            <input
+              id="categoria-nombre"
+              name="nombre"
+              className={`form-control ${editing ? "category-edit-name-input" : ""}`}
+              value={form.nombre}
+              onChange={manejarCambio}
+              placeholder={!editing ? "Ej.: Bebidas" : undefined}
+            />
+          </div>
+          {!editing && <div className="product-form-field">
+            <CategoryFieldLabel htmlFor="categoria-activa" icon="status">Estado</CategoryFieldLabel>
+            <select
+              id="categoria-activa"
+              className="form-control"
+              value={String(form.activa)}
+              onChange={(event) => setForm((current) => ({ ...current, activa: event.target.value === "true" }))}
+            >
+              <option value="true">Activa</option>
+              <option value="false">Inactiva</option>
+            </select>
+          </div>}
+        </div>
+
+        <div className="product-form-actions">
+          <button type="submit" className="primary-button">{editing ? "Guardar cambios" : "Guardar categoría"}</button>
+          <button type="button" className="action-button product-cancel-button" onClick={cerrarFormulario}>Cancelar</button>
+        </div>
+      </form>
+    </section>
+  </div>;
+}
 
 function Categorias() {
   const [categorias, setCategorias] = useState([]);
@@ -17,10 +109,8 @@ function Categorias() {
   const [editingCategory, setEditingCategory] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState("");
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [deleteError, setDeleteError] = useState("");
-  const [reactivationTarget, setReactivationTarget] = useState(null);
-  const [reactivationError, setReactivationError] = useState("");
+  const [statusTarget, setStatusTarget] = useState(null);
+  const [statusError, setStatusError] = useState("");
 
   const cargarCategorias = async () => {
     try {
@@ -66,8 +156,7 @@ function Categorias() {
     setEditingCategory(categoria);
     setForm({
       nombre: categoria.nombre || "",
-      descripcion: categoria.descripcion || "",
-      estado: categoria.estado || "activo",
+      activa: Boolean(categoria.activa),
     });
     setFormError("");
     setShowForm(true);
@@ -101,15 +190,13 @@ function Categorias() {
       return;
     }
 
-    const payload = {
-      nombre: form.nombre.trim(),
-      descripcion: form.descripcion.trim(),
-      estado: form.estado || "activo",
-    };
+    const payload = editingCategory
+      ? { nombre: form.nombre.trim() }
+      : { nombre: form.nombre.trim(), activa: form.activa };
 
     try {
       if (editingCategory) {
-        await apiClient.put(`/categorias/${editingCategory.id_categoria}`, payload);
+        await apiClient.put(`/categorias/${editingCategory.id}`, payload);
       } else {
         await apiClient.post("/categorias", payload);
       }
@@ -117,65 +204,26 @@ function Categorias() {
       await cargarCategorias();
       cerrarFormulario();
     } catch (error) {
-      const coincidencia = error.message?.match(
-        /La categoría tiene (\d+) productos inactivos asociados/
-      );
-
-      if (editingCategory && form.estado === "activo" && coincidencia) {
-        setShowForm(false);
-        setReactivationError("");
-        setReactivationTarget({
-          categoria: editingCategory,
-          payload,
-          productosInactivos: Number(coincidencia[1]),
-        });
-        return;
-      }
-
       setFormError(error.message || "No se pudo guardar la categoría.");
     }
   };
 
-  const cerrarReactivacion = () => {
-    setReactivationTarget(null);
-    setReactivationError("");
-  };
-
-  const confirmarReactivacion = async (activarProductos) => {
-    if (!reactivationTarget) return;
-
+  const confirmarCambioEstado = async () => {
+    if (!statusTarget) return;
+    const { categoria, activar } = statusTarget;
     try {
-      await apiClient.put(
-        `/categorias/${reactivationTarget.categoria.id_categoria}`,
-        { ...reactivationTarget.payload, activar_productos: activarProductos }
-      );
-      await cargarCategorias();
-      cerrarReactivacion();
-      resetFormulario();
+      if (activar) {
+        await apiClient.put(`/categorias/${categoria.id}`, { activa: true });
+      } else {
+        await apiClient.delete(`/categorias/${categoria.id}`);
+      }
+      setCategorias((current) => current.map((item) => (
+        String(item.id) === String(categoria.id) ? { ...item, activa: activar } : item
+      )));
+      setStatusTarget(null);
+      setStatusError("");
     } catch (error) {
-      setReactivationError(error.message || "No se pudo reactivar la categoría.");
-    }
-  };
-
-  const confirmarEliminacion = async () => {
-    if (!deleteTarget) return;
-
-    try {
-      await apiClient.delete(`/categorias/${deleteTarget.id_categoria}`);
-      await cargarCategorias();
-      setDeleteTarget(null);
-      setDeleteError("");
-    } catch (error) {
-      const mensajeError = error.message || "";
-      const esRestriccionRelacionada = /foreign key|constraint|referenced|associated|er_row_is_referenced/i.test(
-        mensajeError
-      );
-
-      setDeleteError(
-        esRestriccionRelacionada
-          ? "No se puede eliminar esta categoría porque tiene productos asociados. Puedes desactivarla en lugar de eliminarla."
-          : mensajeError || "No se pudo eliminar la categoría."
-      );
+      setStatusError(error.message || `No se pudo ${activar ? "activar" : "desactivar"} la categoría.`);
     }
   };
 
@@ -187,16 +235,16 @@ function Categorias() {
     abrirEditar(categoria);
   };
 
-  const eliminarCategoria = async (categoria) => {
-    setDeleteTarget(categoria);
-    setDeleteError("");
+  const confirmarEstado = (categoria, activar) => {
+    setStatusTarget({ categoria, activar });
+    setStatusError("");
   };
 
   return (
     <>
       <div className="page-header">
         <div>
-          <h1>Categorías</h1>
+          <h1 className="category-page-title"><CategoryDisplayIcon type="category" />Categorías</h1>
           <p>Clasificación de productos del sistema.</p>
         </div>
 
@@ -216,64 +264,70 @@ function Categorias() {
             {errorCargaProductos}
           </div>
         )}
-        <table>
+        <table className="category-table">
           <thead>
             <tr>
-              <th>Categoría</th>
-              <th>Descripción</th>
-              <th>Productos</th>
-              <th>Estado</th>
-              <th>Acciones</th>
+              <th><CategoryColumnHeading icon="category">Categoría</CategoryColumnHeading></th>
+              <th><CategoryColumnHeading icon="products">Productos</CategoryColumnHeading></th>
+              <th><CategoryColumnHeading icon="status">Estado</CategoryColumnHeading></th>
+              <th><CategoryColumnHeading icon="actions">Acciones</CategoryColumnHeading></th>
             </tr>
           </thead>
 
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan="5">Cargando categorías...</td>
+                <td colSpan="4">Cargando categorías...</td>
               </tr>
             ) : (
               categorias.map((categoria) => (
-                <tr key={categoria.id_categoria}>
+                <tr key={categoria.id}>
                   <td>
                     <strong>{categoria.nombre}</strong>
                   </td>
 
-                  <td>{categoria.descripcion || "Sin descripción"}</td>
-
                   <td>
                     {productos === null
                       ? "..."
-                      : productos.filter((producto) => producto.categoria_id === categoria.id_categoria).length}
+                      : productos.filter((producto) => String(producto.categoria_id) === String(categoria.id)).length}
                   </td>
 
                   <td>
-                    <span
-                      className={
-                        categoria.estado === "activo"
-                          ? "badge success-badge"
-                          : "badge inactive-badge"
-                      }
-                    >
-                      {categoria.estado === "activo" ? "Activo" : "Inactivo"}
+                    <span className={`badge product-status-badge ${categoria.activa ? "success-badge is-active" : "inactive-badge"}`}>
+                      <span className="product-status-dot" aria-hidden="true" />
+                      {categoria.activa ? "Activo" : "Inactivo"}
                     </span>
                   </td>
 
                   <td>
                     <button
-                      className="action-button"
+                      className="action-button product-action-button"
+                      type="button"
                       onClick={() => editarCategoria(categoria)}
                     >
+                      <CategoryActionIcon type="edit" />
                       Editar
                     </button>
 
-                    <button
-                      className="action-button"
-                      onClick={() => eliminarCategoria(categoria)}
-                      style={{ marginLeft: "0.5rem" }}
-                    >
-                      Eliminar
-                    </button>
+                    {categoria.activa ? (
+                      <button
+                        className="action-button product-action-button category-status-action is-destructive"
+                        type="button"
+                        onClick={() => confirmarEstado(categoria, false)}
+                      >
+                        <CategoryActionIcon type="deactivate" />
+                        Desactivar
+                      </button>
+                    ) : (
+                      <button
+                        className="action-button product-action-button category-status-action is-activating"
+                        type="button"
+                        onClick={() => confirmarEstado(categoria, true)}
+                      >
+                        <CategoryActionIcon type="activate" />
+                        Activar
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))
@@ -282,210 +336,69 @@ function Categorias() {
         </table>
       </div>
 
-        {showForm && (
-          <div
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(15, 23, 42, 0.45)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "1rem",
-              zIndex: 1000,
-            }}
-          >
-            <div
-              className="panel"
-              style={{
-                width: "min(520px, 100%)",
-                padding: "1.5rem",
-              }}
-            >
-              <div className="page-header" style={{ marginBottom: "1rem" }}>
-                <div>
-                  <h1>{editingCategory ? "Editar categoría" : "Nueva categoría"}</h1>
-                  <p>
-                    {editingCategory
-                      ? "Actualiza la información de la categoría."
-                      : "Registra una nueva categoría del sistema."}
-                  </p>
-                </div>
-              </div>
-
-              {formError && (
-                <div className="error-message" role="alert" style={{ marginBottom: "1rem" }}>
-                  {formError}
-                </div>
-              )}
-
-              <form onSubmit={enviarFormulario}>
-                <div style={{ display: "grid", gap: "0.75rem" }}>
-                  <div>
-                    <label className="form-label" htmlFor="categoria-nombre">Nombre</label>
-                    <input
-                      id="categoria-nombre"
-                      name="nombre"
-                      className="form-control"
-                      value={form.nombre}
-                      onChange={manejarCambio}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="form-label" htmlFor="categoria-descripcion">Descripción</label>
-                    <textarea
-                      id="categoria-descripcion"
-                      name="descripcion"
-                      className="form-control"
-                      rows="3"
-                      value={form.descripcion}
-                      onChange={manejarCambio}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="form-label" htmlFor="categoria-estado">Estado</label>
-                    <select
-                      id="categoria-estado"
-                      name="estado"
-                      className="form-control"
-                      value={form.estado}
-                      onChange={manejarCambio}
-                    >
-                      <option value="activo">Activo</option>
-                      <option value="inactivo">Inactivo</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", gap: "0.75rem", marginTop: "1.5rem" }}>
-                  <button type="submit" className="primary-button">
-                    {editingCategory ? "Guardar cambios" : "Guardar categoría"}
-                  </button>
-                  <button type="button" className="action-button" onClick={cerrarFormulario}>
-                    Cancelar
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
+        {showForm && !editingCategory && (
+          <CategoryFormModal
+            editing={false}
+            form={form}
+            setForm={setForm}
+            formError={formError}
+            manejarCambio={manejarCambio}
+            enviarFormulario={enviarFormulario}
+            cerrarFormulario={cerrarFormulario}
+          />
         )}
 
-        {deleteTarget && (
-          <div
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(15, 23, 42, 0.45)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "1rem",
-              zIndex: 1000,
-            }}
-          >
-            <div
-              className="panel"
-              style={{
-                width: "min(420px, 100%)",
-                padding: "1.5rem",
-              }}
-            >
-              <div className="page-header" style={{ marginBottom: "1rem" }}>
+        {showForm && editingCategory && (
+          <CategoryFormModal
+            editing
+            form={form}
+            setForm={setForm}
+            formError={formError}
+            manejarCambio={manejarCambio}
+            enviarFormulario={enviarFormulario}
+            cerrarFormulario={cerrarFormulario}
+          />
+        )}
+
+        {statusTarget && (
+          <div className="product-modal-backdrop">
+            <section className={`panel category-confirm-modal ${statusTarget.activar ? "is-activating" : ""}`} role="dialog" aria-modal="true" aria-labelledby="category-status-title">
+              <div className="category-confirm-heading">
+                <span className="category-confirm-icon" aria-hidden="true">
+                  <CategoryActionIcon type={statusTarget.activar ? "activate" : "deactivate"} />
+                </span>
                 <div>
-                  <h1>Eliminar categoría</h1>
-                  <p>¿Desea eliminar esta categoría?</p>
+                  <h2 id="category-status-title">{statusTarget.activar ? "Activar categoría" : "Desactivar categoría"}</h2>
+                  <p>{statusTarget.activar
+                    ? "La categoría volverá a estar disponible para asignarla a nuevos productos. Los productos asociados conservarán sus estados actuales"
+                    : "Los productos asociados conservarán su estado actual y podrán seguir vendiéndose. Esta categoría dejará de estar disponible para asignarla a nuevos productos"}</p>
                 </div>
               </div>
-
-              <p style={{ marginBottom: "1rem" }}>
-                <strong>{deleteTarget.nombre}</strong>
-              </p>
-
-              {deleteError && (
-                <div className="error-message" role="alert" style={{ marginBottom: "1rem" }}>
-                  {deleteError}
-                </div>
-              )}
-
-              <div style={{ display: "flex", gap: "0.75rem" }}>
-                <button className="primary-button" type="button" onClick={confirmarEliminacion}>
-                  Eliminar
+              <p className="category-confirm-name">{statusTarget.categoria.nombre}</p>
+              {statusError && <div className="error-message" role="alert">{statusError}</div>}
+              <div className="category-confirm-actions">
+                <button
+                  className={`category-danger-button ${statusTarget.activar ? "category-activate-button" : ""}`}
+                  type="button"
+                  onClick={confirmarCambioEstado}
+                >
+                  {statusTarget.activar ? "Activar" : "Desactivar"}
                 </button>
                 <button
-                  className="action-button"
+                  className="category-cancel-button"
                   type="button"
                   onClick={() => {
-                    setDeleteTarget(null);
-                    setDeleteError("");
+                    setStatusTarget(null);
+                    setStatusError("");
                   }}
                 >
                   Cancelar
                 </button>
               </div>
-            </div>
+            </section>
           </div>
         )}
 
-        {reactivationTarget && (
-          <div
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(15, 23, 42, 0.45)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "1rem",
-              zIndex: 1000,
-            }}
-          >
-            <div
-              className="panel"
-              style={{
-                width: "min(520px, 100%)",
-                padding: "1.5rem",
-              }}
-            >
-              <div className="page-header" style={{ marginBottom: "1rem" }}>
-                <div>
-                  <h1>Reactivar categoría</h1>
-                  <p>
-                    La categoría tiene {reactivationTarget.productosInactivos} productos
-                    inactivos asociados. ¿Deseas activar también los productos asociados?
-                  </p>
-                </div>
-              </div>
-
-              {reactivationError && (
-                <div className="error-message" role="alert" style={{ marginBottom: "1rem" }}>
-                  {reactivationError}
-                </div>
-              )}
-
-              <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-                <button
-                  className="primary-button"
-                  type="button"
-                  onClick={() => confirmarReactivacion(true)}
-                >
-                  Activar categoría y productos
-                </button>
-                <button
-                  className="action-button"
-                  type="button"
-                  onClick={() => confirmarReactivacion(false)}
-                >
-                  Solo activar categoría
-                </button>
-                <button className="action-button" type="button" onClick={cerrarReactivacion}>
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
     </>
   );
 }

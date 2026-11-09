@@ -1,128 +1,25 @@
 const pool = require('../config/database');
 
+const DETAIL_COLUMNS = `
+  id, compra_id, proveedor_id, producto_proveedor_id, producto_id,
+  codigo_producto, nombre_producto, presentacion_producto,
+  presentacion_compra, unidades_por_presentacion, cantidad_presentaciones,
+  costo_presentacion, unidades_pedidas, importe
+`;
+
 async function getAllDetalleCompras() {
   const [rows] = await pool.query(
-    `SELECT id_detalle_compra, compra_id, producto_id, cantidad, costo_unitario,
-            subtotal, total_linea, observaciones, fecha_creacion
-     FROM detalle_compras ORDER BY id_detalle_compra ASC`
+    `SELECT ${DETAIL_COLUMNS} FROM detalle_compras ORDER BY id`
   );
   return rows;
 }
 
 async function getDetalleCompraById(id) {
   const [rows] = await pool.query(
-    `SELECT id_detalle_compra, compra_id, producto_id, cantidad, costo_unitario,
-            subtotal, total_linea, observaciones, fecha_creacion
-     FROM detalle_compras WHERE id_detalle_compra = ?`,
+    `SELECT ${DETAIL_COLUMNS} FROM detalle_compras WHERE id = ?`,
     [id]
   );
   return rows[0] || null;
 }
 
-async function createDetalleCompra(data) {
-  const {
-    compra_id,
-    producto_id,
-    cantidad,
-    costo_unitario,
-    subtotal,
-    total_linea,
-    observaciones,
-  } = data;
-
-  const [result] = await pool.query(
-    `INSERT INTO detalle_compras (
-      compra_id,
-      producto_id,
-      cantidad,
-      costo_unitario,
-      subtotal,
-      total_linea,
-      observaciones
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [
-      compra_id,
-      producto_id,
-      cantidad,
-      costo_unitario,
-      subtotal ?? 0,
-      total_linea ?? 0,
-      observaciones ?? null,
-    ]
-  );
-
-  return {
-    id_detalle_compra: result.insertId,
-    compra_id,
-    producto_id,
-    cantidad,
-    costo_unitario,
-    subtotal: subtotal ?? 0,
-    total_linea: total_linea ?? 0,
-    observaciones: observaciones ?? null,
-  };
-}
-
-async function updateDetalleCompra(id, data) {
-  const fields = [];
-  const values = [];
-
-  if (data.compra_id !== undefined) {
-    fields.push('compra_id = ?');
-    values.push(data.compra_id);
-  }
-
-  if (data.producto_id !== undefined) {
-    fields.push('producto_id = ?');
-    values.push(data.producto_id);
-  }
-
-  if (data.cantidad !== undefined) {
-    fields.push('cantidad = ?');
-    values.push(data.cantidad);
-  }
-
-  if (data.costo_unitario !== undefined) {
-    fields.push('costo_unitario = ?');
-    values.push(data.costo_unitario);
-  }
-
-  if (data.subtotal !== undefined) {
-    fields.push('subtotal = ?');
-    values.push(data.subtotal);
-  }
-
-  if (data.total_linea !== undefined) {
-    fields.push('total_linea = ?');
-    values.push(data.total_linea);
-  }
-
-  if (data.observaciones !== undefined) {
-    fields.push('observaciones = ?');
-    values.push(data.observaciones);
-  }
-
-  if (fields.length === 0) {
-    return null;
-  }
-
-  await pool.query(
-    `UPDATE detalle_compras SET ${fields.join(', ')} WHERE id_detalle_compra = ?`,
-    [...values, id]
-  );
-
-  return true;
-}
-
-async function deleteDetalleCompra(id) {
-  const [result] = await pool.query('DELETE FROM detalle_compras WHERE id_detalle_compra = ?', [id]);
-  return result;
-}
-
-module.exports = {
-  getAllDetalleCompras,
-  getDetalleCompraById,
-  createDetalleCompra,
-  updateDetalleCompra,
-  deleteDetalleCompra,
-};
+module.exports = { getAllDetalleCompras, getDetalleCompraById };

@@ -1,404 +1,385 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import apiClient from "../api/client";
 
-const emptyForm = {
-  numero_factura: "",
-  fecha_venta: "",
-  estado: "pendiente",
-  observaciones: "",
-  forma_pago: "",
+const today = () => {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: "America/Lima",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const part = (type) => parts.find((item) => item.type === type)?.value || "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+};
+const newLine = () => ({ producto_id: "", cantidad: "", precio_unitario: "" });
+const nextSaleNumber = (sales) => {
+  const lastSequence = sales.reduce((maximum, sale) => {
+    const match = /^VTA-SIM-(\d+)$/.exec(String(sale.numero));
+    if (!match) return maximum;
+    const sequence = BigInt(match[1]);
+    return sequence > maximum ? sequence : maximum;
+  }, 0n);
+  return `VTA-SIM-${(lastSequence + 1n).toString().padStart(7, "0")}`;
+};
+const paymentLabels = {
+  efectivo: "Efectivo",
+  electronico: "Electrónico",
+  yape: "Yape",
+  plin: "Plin",
+};
+const saleIcons = {
+  sales: <path d="M4 18.5 9 13l3.5 3.5L20 8 M14.5 8H20v5.5" />,
+  number: <path d="M4 9h16M4 15h16M10 3 8 21m8-18-2 18" />,
+  date: <path d="M7 3v3m10-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13H4V6a1 1 0 0 1 1-1Z" />,
+  payment: <path d="M3 6h18v12H3zM3 10h18m-14 4h3" />,
+  total: <path d="M12 3v18m5-14.5c-1-1-2.5-1.5-5-1.5-2.2 0-4 1.1-4 3s1.6 2.8 4 3.5 5 1.2 5 3.5-1.8 4-5 4c-2.3 0-4-.7-5-1.8" />,
+  status: <path d="M12 3v9l6.4 3.7M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />,
+  actions: <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Zm10 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />,
+  product: <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Zm-8 4.5 8 4.5 8-4.5M12 12v9" />,
+  quantity: <path d="M5 12h14m-7-7v14" />,
+  price: <path d="M12 3v18m5-14.5c-1-1-2.5-1.5-5-1.5-2.2 0-4 1.1-4 3s1.6 2.8 4 3.5 5 1.2 5 3.5-1.8 4-5 4c-2.3 0-4-.7-5-1.8" />,
+  reason: <path d="M12 3v18m5-14.5c-1-1-2.5-1.5-5-1.5-2.2 0-4 1.1-4 3s1.6 2.8 4 3.5 5 1.2 5 3.5-1.8 4-5 4c-2.3 0-4-.7-5-1.8" />,
 };
 
-const nuevaLinea = () => ({ producto_id: "", cantidad: "", precio_unitario: "" });
+function SaleIcon({ type, className = "" }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {saleIcons[type]}
+  </svg>;
+}
 
-const normalizarFormaPago = (formaPago) =>
-  ["Yape", "Plin", "Yape/Plin"].includes(formaPago) ? "Yape/Plin" : formaPago || "";
+function SaleHeading({ icon, children }) {
+  return <span className="category-table-heading"><SaleIcon type={icon} className="category-display-icon" />{children}</span>;
+}
+
+function SaleFieldLabel({ icon, children }) {
+  return <span className="form-label sale-field-label"><SaleIcon type={icon} />{children}</span>;
+}
+
+function formatDate(value) {
+  const text = value instanceof Date
+    ? `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`
+    : String(value ?? "").slice(0, 10);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : "—";
+}
+
+function toCents(value) {
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value ?? ""));
+  if (!match) return 0n;
+  return BigInt(match[1]) * 100n + BigInt((match[2] || "").padEnd(2, "0"));
+}
+
+function formatCurrency(cents) {
+  const whole = (cents / 100n).toLocaleString("es-PE");
+  const fraction = (cents % 100n).toString().padStart(2, "0");
+  return `S/ ${whole}.${fraction}`;
+}
+
+function lineAmount(detail) {
+  if (!/^\d+$/.test(detail.cantidad) || !detail.precio_unitario) return 0n;
+  return toCents(detail.precio_unitario) * BigInt(detail.cantidad);
+}
 
 function Ventas() {
   const [ventas, setVentas] = useState([]);
   const [productos, setProductos] = useState([]);
-  const [usuarios, setUsuarios] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [search, setSearch] = useState("");
-  const [estadoFiltro, setEstadoFiltro] = useState("todos");
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState(emptyForm);
-  const [detalles, setDetalles] = useState([nuevaLinea()]);
+  const [form, setForm] = useState({ numero: "", fecha_comercial: today(), medio_pago: "efectivo" });
+  const [detalles, setDetalles] = useState([newLine()]);
+  const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-  const [ventaDetalle, setVentaDetalle] = useState(null);
-  const [detalleLoading, setDetalleLoading] = useState(false);
-  const [detalleError, setDetalleError] = useState("");
-  const [detalleSuccess, setDetalleSuccess] = useState("");
-  const [formaPagoDetalle, setFormaPagoDetalle] = useState("");
-  const [estadoDetalle, setEstadoDetalle] = useState("");
-  const [guardandoEstado, setGuardandoEstado] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [detailError, setDetailError] = useState("");
+  const [annulReason, setAnnulReason] = useState("");
+  const [annulDate, setAnnulDate] = useState(today());
+  const [confirmAnnul, setConfirmAnnul] = useState(false);
+  const [confirmSale, setConfirmSale] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [operationKey, setOperationKey] = useState(null);
+  const [salesNotice, setSalesNotice] = useState("");
+  const [numberSearch, setNumberSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [paymentFilter, setPaymentFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
 
   const cargarDatos = async () => {
     try {
       setLoadError("");
-      const [ventasData, productosData] = await Promise.all([
-        apiClient.get("/ventas"),
-        apiClient.get("/productos"),
-      ]);
-      setVentas(Array.isArray(ventasData) ? ventasData : []);
-      setProductos(Array.isArray(productosData) ? productosData : []);
-
-      const usuarioSesion = JSON.parse(localStorage.getItem("alanis_user") || "null");
-      if (usuarioSesion?.rol?.nombre === "Administrador") {
-        try {
-          const usuariosData = await apiClient.get("/usuarios");
-          setUsuarios(Array.isArray(usuariosData) ? usuariosData : []);
-        } catch (error) {
-          console.error("No se pudieron cargar los usuarios asociados a las ventas.", error);
-          setUsuarios([]);
-        }
-      } else {
-        setUsuarios([]);
-      }
+      const [sales, items] = await Promise.all([apiClient.get("/ventas"), apiClient.get("/productos")]);
+      setVentas(Array.isArray(sales) ? sales : []);
+      setProductos(Array.isArray(items) ? items : []);
     } catch (error) {
       setLoadError(error.message || "No se pudieron cargar las ventas.");
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
+  useEffect(() => { Promise.resolve().then(cargarDatos); }, []);
 
-  useEffect(() => {
-    Promise.resolve().then(cargarDatos);
-  }, []);
+  const filteredSales = useMemo(() => {
+    const query = numberSearch.trim().toLowerCase();
+    return ventas.filter((sale) => {
+      const saleDate = String(sale.fecha_comercial ?? "").slice(0, 10);
+      return (!query || String(sale.numero).toLowerCase().includes(query)) &&
+        (!dateFrom || saleDate >= dateFrom) &&
+        (!dateTo || saleDate <= dateTo) &&
+        (!paymentFilter || sale.medio_pago === paymentFilter) &&
+        (!statusFilter || sale.estado === statusFilter);
+    });
+  }, [ventas, numberSearch, dateFrom, dateTo, paymentFilter, statusFilter]);
 
-  const abrirFormulario = () => {
-    setForm({ ...emptyForm, fecha_venta: new Date().toISOString().slice(0, 10) });
-    setDetalles([nuevaLinea()]);
+  const changeDetail = (index, name, value) => {
+    setDetalles((current) => current.map((detail, i) => {
+      if (i !== index) return detail;
+      if (name === "producto_id") {
+        const product = productos.find((item) => String(item.id) === String(value));
+        return { ...detail, producto_id: value, precio_unitario: product?.precio_venta ?? "" };
+      }
+      return { ...detail, [name]: value };
+    }));
+    setConfirmSale(false);
     setFormError("");
+  };
+
+  const abrirNuevaVenta = () => {
+    setOperationKey(crypto.randomUUID());
+    setForm({ numero: nextSaleNumber(ventas), fecha_comercial: today(), medio_pago: "efectivo" });
+    setDetalles([newLine()]);
+    setFormError("");
+    setConfirmSale(false);
+    setConfirmCancel(false);
     setShowForm(true);
-  };
-
-  const cerrarFormulario = () => {
-    setShowForm(false);
-    setForm(emptyForm);
-    setDetalles([nuevaLinea()]);
-    setFormError("");
-  };
-
-  const abrirDetalle = async (ventaId) => {
-    setDetalleLoading(true);
-    setDetalleError("");
-    setDetalleSuccess("");
-    setVentaDetalle(null);
-
-    try {
-      const data = await apiClient.get(`/ventas/${ventaId}`);
-      setVentaDetalle(data);
-      setFormaPagoDetalle(normalizarFormaPago(data.forma_pago));
-      setEstadoDetalle(data.estado || "");
-    } catch (error) {
-      setDetalleError(error.message || "No se pudo cargar el detalle de la venta.");
-    } finally {
-      setDetalleLoading(false);
-    }
-  };
-
-  const cerrarDetalle = () => {
-    setVentaDetalle(null);
-    setDetalleError("");
-    setDetalleSuccess("");
-    setFormaPagoDetalle("");
-    setEstadoDetalle("");
-  };
-
-  const guardarCambiosVenta = async () => {
-    if (!ventaDetalle || guardandoEstado) return;
-
-    const formaPagoCambiada =
-      formaPagoDetalle !== normalizarFormaPago(ventaDetalle.forma_pago);
-    const estadoCambiado = estadoDetalle !== ventaDetalle.estado;
-
-    if (!formaPagoCambiada && !estadoCambiado) return;
-
-    const estadosPermitidos = ventaDetalle.estado === "pendiente"
-      ? ["pagada", "anulada"]
-      : ventaDetalle.estado === "pagada"
-        ? ["anulada"]
-        : [];
-
-    if (estadoCambiado && !estadosPermitidos.includes(estadoDetalle)) {
-      return;
-    }
-
-    try {
-      setDetalleError("");
-      setDetalleSuccess("");
-      setGuardandoEstado(true);
-      let detalleActualizado = ventaDetalle;
-      let formaPagoGuardada = false;
-
-      if (formaPagoCambiada) {
-        detalleActualizado = await apiClient.put(`/ventas/${ventaDetalle.id_venta}`, {
-          forma_pago: formaPagoDetalle || null,
-        });
-        setVentaDetalle(detalleActualizado);
-        setFormaPagoDetalle(normalizarFormaPago(detalleActualizado.forma_pago));
-        formaPagoGuardada = true;
-      }
-
-      if (estadoCambiado) {
-        try {
-          await apiClient.post(`/ventas/${ventaDetalle.id_venta}/estado`, {
-            estado: estadoDetalle,
-          });
-          detalleActualizado = await apiClient.get(`/ventas/${ventaDetalle.id_venta}`);
-          setVentaDetalle(detalleActualizado);
-          setFormaPagoDetalle(normalizarFormaPago(detalleActualizado.forma_pago));
-          setEstadoDetalle(detalleActualizado.estado || "");
-          await cargarDatos();
-        } catch (error) {
-          setEstadoDetalle(detalleActualizado.estado || "");
-          if (formaPagoGuardada) {
-            setDetalleSuccess("La forma de pago se guardó correctamente.");
-          }
-          throw error;
-        }
-      }
-
-      setDetalleSuccess("Cambios guardados correctamente.");
-    } catch (error) {
-      setDetalleError(error.message || "No se pudieron guardar los cambios de la venta.");
-    } finally {
-      setGuardandoEstado(false);
-    }
-  };
-
-  const cambiarCampo = (event) => {
-    const { name, value } = event.target;
-    setForm((estadoActual) => ({ ...estadoActual, [name]: value }));
-    setFormError("");
-  };
-
-  const cambiarDetalle = (index, event) => {
-    const { name, value } = event.target;
-    setDetalles((lineas) => lineas.map((linea, lineaIndex) => (
-      lineaIndex === index ? { ...linea, [name]: value } : linea
-    )));
-    setFormError("");
   };
 
   const guardarVenta = async (event) => {
     event.preventDefault();
-
-    if (!form.fecha_venta || detalles.length === 0) {
-      setFormError("Selecciona una fecha y agrega al menos un producto.");
+    const productIds = detalles.map((item) => item.producto_id);
+    if (!form.numero.trim() || !form.fecha_comercial || !form.medio_pago ||
+        !detalles.length || detalles.some((item) => !item.producto_id ||
+          !/^\d+$/.test(item.cantidad) || BigInt(item.cantidad || 0) < 1n ||
+          !/^\d+(?:\.\d{1,2})?$/.test(String(item.precio_unitario)) ||
+          toCents(item.precio_unitario) <= 0n) ||
+        new Set(productIds).size !== productIds.length) {
+      setFormError("Completa los datos de venta; cada producto debe ser único y tener cantidad y precio válidos.");
       return;
     }
+    setConfirmSale(true);
+  };
 
-    const detallesPayload = detalles.map((detalle) => ({
-      producto_id: Number(detalle.producto_id),
-      cantidad: Number(detalle.cantidad),
-      precio_unitario: Number(detalle.precio_unitario),
-    }));
-
-    if (detallesPayload.some((detalle) => !detalle.producto_id || detalle.cantidad <= 0 || detalle.precio_unitario <= 0)) {
-      setFormError("Cada producto debe tener cantidad y precio unitario mayores que 0.");
-      return;
-    }
-
+  const confirmarVenta = async () => {
     try {
-      setIsSaving(true);
-      await apiClient.post("/ventas/transaccional", {
-        numero_factura: form.numero_factura.trim() || null,
-        fecha_venta: form.fecha_venta,
-        estado: form.estado,
-        observaciones: form.observaciones.trim() || null,
-        forma_pago: form.forma_pago.trim() || null,
-        detalles: detallesPayload,
+      setSaving(true);
+      setFormError("");
+      const result = await apiClient.post("/ventas/transaccional", {
+        numero: form.numero.trim(),
+        clave_operacion: operationKey,
+        fecha_comercial: form.fecha_comercial,
+        medio_pago: form.medio_pago,
+        detalles: detalles.map((detail) => ({
+          producto_id: detail.producto_id,
+          cantidad: Number(detail.cantidad),
+          precio_unitario: detail.precio_unitario,
+        })),
       });
+      setSalesNotice(`Venta ${result?.venta?.numero || form.numero} registrada correctamente.`);
+      setShowForm(false);
+      setOperationKey(null);
+      setConfirmSale(false);
+      setForm({ numero: "", fecha_comercial: today(), medio_pago: "efectivo" });
+      setDetalles([newLine()]);
       await cargarDatos();
-      cerrarFormulario();
     } catch (error) {
       setFormError(error.message || "No se pudo registrar la venta.");
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
   };
 
-  const obtenerUsuario = (usuarioId) => {
-    const usuario = usuarios.find((item) => item.id_usuario === usuarioId);
-    return usuario ? `${usuario.nombre} ${usuario.apellido || ""}`.trim() : "Usuario no encontrado";
+  const hasSaleData = detalles.length > 1 ||
+    detalles.some((detail) => detail.producto_id || detail.cantidad) ||
+    form.fecha_comercial !== today() ||
+    form.medio_pago !== "efectivo";
+
+  const cancelarNuevaVenta = () => {
+    if (hasSaleData) {
+      setConfirmCancel(true);
+      setConfirmSale(false);
+      return;
+    }
+    descartarNuevaVenta();
   };
 
-  const ventasVisibles = ventas
-    .filter((venta) => {
-      const usuario = obtenerUsuario(venta.usuario_id).toLowerCase();
-      const texto = search.trim().toLowerCase();
-      const coincideBusqueda = !texto ||
-        String(venta.id_venta).includes(texto) ||
-        venta.numero_factura?.toLowerCase().includes(texto) ||
-        usuario.includes(texto);
-      const coincideEstado = estadoFiltro === "todos" || venta.estado === estadoFiltro;
-      return coincideBusqueda && coincideEstado;
-    })
-    .sort((a, b) => new Date(b.fecha_venta) - new Date(a.fecha_venta) || b.id_venta - a.id_venta);
+  const descartarNuevaVenta = () => {
+    setShowForm(false);
+    setOperationKey(null);
+    setConfirmSale(false);
+    setConfirmCancel(false);
+  };
 
-  const formatearFecha = (fecha) => fecha ? new Date(fecha).toLocaleDateString("es-PE") : "No disponible";
+  const abrirDetalle = async (id) => {
+    setDetailError("");
+    setConfirmAnnul(false);
+    try {
+      setSelected(await apiClient.get(`/ventas/${id}`));
+      setAnnulDate(today());
+      setAnnulReason("");
+    } catch (error) {
+      setDetailError(error.message || "No se pudo cargar el detalle de venta.");
+    }
+  };
 
-  return (
-    <>
-      <div className="page-header">
-        <div>
-          <h1>Ventas</h1>
-          <p>Registro y consulta de ventas realizadas.</p>
-        </div>
-        <button className="primary-button" onClick={abrirFormulario}>+ Nueva venta</button>
+  const anularVenta = async () => {
+    if (!selected || selected.estado !== "realizada") return;
+    try {
+      setSaving(true);
+      setDetailError("");
+      await apiClient.post(`/ventas/${selected.id}/anulacion`, {
+        fecha_comercial: annulDate,
+        motivo_anulacion: annulReason.trim() || null,
+      });
+      setConfirmAnnul(false);
+      setSelected(await apiClient.get(`/ventas/${selected.id}`));
+      await cargarDatos();
+    } catch (error) {
+      setDetailError(error.message || "No se pudo anular la venta.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saleTotalCents = detalles.reduce((sum, detail) => sum + lineAmount(detail), 0n);
+
+  return <>
+    <div className="page-header">
+      <div>
+        <h1 className="category-page-title"><SaleIcon type="sales" className="category-display-icon" />Ventas</h1>
+        <p>Registro y consulta de ventas realizadas.</p>
       </div>
-
-      <div className="panel">
-        <div className="table-toolbar">
-          <input className="search-input" placeholder="Buscar venta..." value={search} onChange={(event) => setSearch(event.target.value)} />
-          <select className="filter-select" value={estadoFiltro} onChange={(event) => setEstadoFiltro(event.target.value)}>
-            <option value="todos">Todos los estados</option>
-            <option value="pendiente">Pendiente</option>
-            <option value="pagada">Pagada</option>
-            <option value="anulada">Anulada</option>
+      <button className="primary-button" type="button" onClick={abrirNuevaVenta}>+ Nueva venta</button>
+    </div>
+    <div className="panel">
+      {salesNotice && <div className="sales-notice" role="status">{salesNotice}<button type="button" aria-label="Cerrar notificación" onClick={() => setSalesNotice("")}>×</button></div>}
+      {loadError && <div className="error-message" role="alert">{loadError}</div>}
+      <div className="table-toolbar sales-toolbar">
+        <label className="sales-filter sales-search-filter">
+          <span>Buscar número</span>
+          <input className="search-input" placeholder="Número de venta..." value={numberSearch} onChange={(event) => setNumberSearch(event.target.value)} />
+        </label>
+        <label className="sales-filter"><span>Desde</span><input className="form-control" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label>
+        <label className="sales-filter"><span>Hasta</span><input className="form-control" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label>
+        <label className="sales-filter">
+          <span>Medio de pago</span>
+          <select className="filter-select" value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)}>
+            <option value="">Todos</option>
+            {Object.entries(paymentLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
-        </div>
-
-        {loadError && <div className="error-message" role="alert" style={{ marginBottom: "1rem" }}>{loadError}</div>}
-
-        <div className="table-responsive ventas-table-scroll">
-          <table>
-            <thead><tr><th>N° venta</th><th>Fecha</th><th>Usuario</th><th>Comprobante</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead>
-            <tbody>
-              {isLoading ? (
-                <tr><td colSpan="7">Cargando ventas...</td></tr>
-              ) : !loadError && ventasVisibles.length === 0 ? (
-                <tr><td colSpan="7">No se encontraron ventas.</td></tr>
-              ) : ventasVisibles.map((venta) => (
-                <tr key={venta.id_venta}>
-                  <td>#{venta.id_venta}</td>
-                  <td>{formatearFecha(venta.fecha_venta)}</td>
-                  <td>{obtenerUsuario(venta.usuario_id)}</td>
-                  <td>{venta.numero_factura || "Sin comprobante"}</td>
-                  <td>S/ {Number(venta.total || 0).toFixed(2)}</td>
-                  <td><span className={`badge ${venta.estado === "pagada" ? "success-badge" : venta.estado === "anulada" || venta.estado === "cancelada" ? "inactive-badge" : "warning-badge"}`}>{venta.estado}</span></td>
-                  <td><button className="action-button" type="button" onClick={() => abrirDetalle(venta.id_venta)}>Ver</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        </label>
+        <label className="sales-filter">
+          <span>Estado</span>
+          <select className="filter-select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <option value="">Todos</option><option value="realizada">Realizada</option><option value="anulada">Anulada</option>
+          </select>
+        </label>
       </div>
+      <div className="table-responsive ventas-table-scroll sales-page-scroll">
+        <table className="sales-page-table">
+          <thead><tr>
+            <th><SaleHeading icon="number">Número</SaleHeading></th>
+            <th><SaleHeading icon="date">Fecha</SaleHeading></th>
+            <th><SaleHeading icon="payment">Medio de pago</SaleHeading></th>
+            <th><SaleHeading icon="total">Total</SaleHeading></th>
+            <th><SaleHeading icon="status">Estado</SaleHeading></th>
+            <th><SaleHeading icon="actions">Acciones</SaleHeading></th>
+          </tr></thead>
+          <tbody>{loading ? <tr><td colSpan="6">Cargando ventas...</td></tr>
+            : filteredSales.length === 0 ? <tr><td colSpan="6">No hay ventas que coincidan con los filtros.</td></tr>
+              : filteredSales.map((sale) => <tr key={sale.id}>
+                <td><strong>{sale.numero}</strong></td>
+                <td>{formatDate(sale.fecha_comercial)}</td>
+                <td>{paymentLabels[sale.medio_pago] || sale.medio_pago}</td>
+                <td className="sales-table-total">{formatCurrency(toCents(sale.importe_total ?? "0"))}</td>
+                <td><span className={`badge sales-status-badge ${sale.estado === "realizada" ? "is-completed" : "is-annulled"}`}>{sale.estado === "realizada" ? "Realizada" : "Anulada"}</span></td>
+                <td><button className="action-button product-action-button" type="button" onClick={() => abrirDetalle(sale.id)}><SaleIcon type="actions" />Ver</button></td>
+              </tr>)}
+          </tbody>
+        </table>
+      </div>
+    </div>
 
-      {showForm && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", zIndex: 1000 }}>
-          <div className="panel" style={{ width: "min(720px, 100%)", maxHeight: "90vh", overflowY: "auto", padding: "1.5rem" }}>
-            <div className="page-header" style={{ marginBottom: "1rem" }}><div><h1>Nueva venta</h1><p>Registra la venta y sus productos.</p></div></div>
-            {formError && <div className="error-message" role="alert" style={{ marginBottom: "1rem" }}>{formError}</div>}
-            <form onSubmit={guardarVenta}>
-              <div style={{ display: "grid", gap: "0.75rem" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.75rem" }}>
-                  <div><label className="form-label" htmlFor="venta-fecha">Fecha de venta</label><input id="venta-fecha" name="fecha_venta" type="date" className="form-control" value={form.fecha_venta} onChange={cambiarCampo} /></div>
-                  <div><label className="form-label" htmlFor="venta-factura">Comprobante</label><input id="venta-factura" name="numero_factura" className="form-control" value={form.numero_factura} onChange={cambiarCampo} /></div>
-                </div>
-                <div><label className="form-label" htmlFor="venta-estado">Estado</label><select id="venta-estado" name="estado" className="form-control" value={form.estado} onChange={cambiarCampo}><option value="pendiente">Pendiente</option><option value="pagada">Pagada</option></select></div>
-                <div><label className="form-label" htmlFor="venta-forma-pago">Forma de pago</label><select id="venta-forma-pago" name="forma_pago" className="form-control" value={form.forma_pago} onChange={cambiarCampo}><option value="">No especificada</option><option value="Efectivo">Efectivo</option><option value="Yape/Plin">Yape / Plin</option><option value="Tarjeta">Tarjeta</option></select></div>
-                <div><label className="form-label" htmlFor="venta-observaciones">Observaciones</label><textarea id="venta-observaciones" name="observaciones" rows="2" className="form-control" value={form.observaciones} onChange={cambiarCampo} /></div>
-                <div>
-                  <div style={{ marginBottom: "0.5rem" }}><label className="form-label">Productos</label></div>
-                  <div style={{ display: "grid", gap: "0.75rem" }}>
-                    {detalles.map((detalle, index) => (
-                      <div key={index} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: "0.5rem", alignItems: "end" }}>
-                        <div><label className="form-label" htmlFor={`venta-producto-${index}`}>Producto</label><select id={`venta-producto-${index}`} name="producto_id" className="form-control" value={detalle.producto_id} onChange={(event) => cambiarDetalle(index, event)}><option value="">Selecciona</option>{productos.filter((producto) => producto.estado === "activo").map((producto) => <option key={producto.id_producto} value={producto.id_producto}>{producto.codigo_sku} - {producto.nombre}</option>)}</select></div>
-                        <div><label className="form-label" htmlFor={`venta-cantidad-${index}`}>Cantidad</label><input id={`venta-cantidad-${index}`} name="cantidad" type="number" min="1" step="1" className="form-control" value={detalle.cantidad} onChange={(event) => cambiarDetalle(index, event)} /></div>
-                        <div><label className="form-label" htmlFor={`venta-precio-${index}`}>Precio unitario</label><input id={`venta-precio-${index}`} name="precio_unitario" type="number" min="0.01" step="0.01" className="form-control" value={detalle.precio_unitario} onChange={(event) => cambiarDetalle(index, event)} /></div>
-                        <button type="button" className="action-button" onClick={() => setDetalles((lineas) => lineas.filter((_, lineaIndex) => lineaIndex !== index))} disabled={detalles.length === 1}>Quitar</button>
-                      </div>
-                    ))}
-                  </div>
-                  <button type="button" className="action-button" style={{ marginTop: "0.75rem" }} onClick={() => setDetalles((lineas) => [...lineas, nuevaLinea()])}>+ Agregar producto</button>
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: "0.75rem", marginTop: "1.5rem" }}><button type="submit" className="primary-button" disabled={isSaving}>{isSaving ? "Guardando..." : "Guardar venta"}</button><button type="button" className="action-button" onClick={cerrarFormulario}>Cancelar</button></div>
-            </form>
-          </div>
+    {showForm && <div className="account-modal-backdrop"><section className="account-modal sales-modal" role="dialog" aria-modal="true" aria-labelledby="sale-title">
+      <div className="account-modal-header sales-modal-header">
+        <span className="dashboard-section-icon dashboard-section-icon-chart"><SaleIcon type="sales" /></span>
+        <div><h2 id="sale-title">Nueva venta</h2><p>El registro de venta y sus movimientos se guardan juntos.</p></div>
+      </div>
+      {formError && <div className="error-message" role="alert">{formError}</div>}
+      <form onSubmit={guardarVenta}>
+        <div className="sales-form-meta">
+          <label><SaleFieldLabel icon="number">Número</SaleFieldLabel><input className="form-control" value={form.numero} readOnly /></label>
+          <label><SaleFieldLabel icon="date">Fecha comercial</SaleFieldLabel><input className="form-control" type="date" value={form.fecha_comercial} onChange={(event) => { setConfirmSale(false); setConfirmCancel(false); setForm((current) => ({ ...current, fecha_comercial: event.target.value })); }} required /></label>
+          <label><SaleFieldLabel icon="payment">Medio de pago</SaleFieldLabel><select className="form-control" value={form.medio_pago} onChange={(event) => { setConfirmSale(false); setConfirmCancel(false); setForm((current) => ({ ...current, medio_pago: event.target.value })); }}><option value="efectivo">Efectivo</option><option value="electronico">Electrónico</option><option value="yape">Yape</option><option value="plin">Plin</option></select></label>
         </div>
-      )}
-
-      {(detalleLoading || ventaDetalle || detalleError) && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", zIndex: 1000 }}>
-          <div className="panel" style={{ width: "min(760px, 100%)", maxHeight: "90vh", overflowY: "auto", padding: "1.75rem" }}>
-            {detalleLoading ? (
-              <p>Cargando detalle de venta...</p>
-            ) : detalleError && !ventaDetalle ? (
-              <>
-                <div className="error-message" role="alert" style={{ marginBottom: "1rem" }}>{detalleError}</div>
-                <button type="button" className="action-button" onClick={cerrarDetalle}>Cerrar</button>
-              </>
-            ) : (
-              <>
-                <div className="page-header" style={{ marginBottom: "1.5rem" }}>
-                  <div>
-                    <h1>Detalle de venta #{ventaDetalle.id_venta}</h1>
-                    <p>{obtenerUsuario(ventaDetalle.usuario_id)}</p>
-                  </div>
-                </div>
-
-                {detalleError && <div className="error-message" role="alert" style={{ marginBottom: "1rem" }}>{detalleError}</div>}
-                {detalleSuccess && <div className="success-badge" role="status" style={{ display: "block", marginBottom: "1rem" }}>{detalleSuccess}</div>}
-
-                <section style={{ marginBottom: "1.5rem" }}>
-                  <h3 style={{ marginBottom: "0.75rem" }}>Información</h3>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.75rem 1.5rem" }}>
-                    <div><small>N° de venta</small><strong style={{ display: "block" }}>#{ventaDetalle.id_venta}</strong></div>
-                    <div><small>Usuario</small><strong style={{ display: "block" }}>{obtenerUsuario(ventaDetalle.usuario_id)}</strong></div>
-                    <div><small>Fecha</small><strong style={{ display: "block" }}>{formatearFecha(ventaDetalle.fecha_venta)}</strong></div>
-                    <div><small>Comprobante</small><strong style={{ display: "block" }}>{ventaDetalle.numero_factura || "Sin comprobante"}</strong></div>
-                    <div><small>Forma de pago</small><select className="form-control" value={formaPagoDetalle} onChange={(event) => { setFormaPagoDetalle(event.target.value); setDetalleError(""); setDetalleSuccess(""); }}><option value="">No especificada</option><option value="Efectivo">Efectivo</option><option value="Yape/Plin">Yape / Plin</option><option value="Tarjeta">Tarjeta</option></select></div>
-                    <div><small>Estado</small><select className="form-control" value={estadoDetalle} disabled={ventaDetalle.estado === "anulada" || guardandoEstado} onChange={(event) => setEstadoDetalle(event.target.value)}>{ventaDetalle.estado === "pendiente" && <option value="pendiente">Pendiente</option>}{ventaDetalle.estado === "pagada" && <option value="pagada">Pagada</option>}{ventaDetalle.estado === "pendiente" && <option value="pagada">Pagada</option>}<option value="anulada">Anulada</option></select></div>
-                  </div>
-                  <div style={{ marginTop: "0.75rem" }}><small>Observaciones</small><div>{ventaDetalle.observaciones || "Sin observaciones"}</div></div>
-                </section>
-
-                <section style={{ marginBottom: "1.25rem" }}>
-                  <h3 style={{ marginBottom: "0.75rem" }}>Productos</h3>
-                  <div className="table-responsive">
-                    <table>
-                      <thead><tr><th>Producto</th><th>Cantidad</th><th>Precio unitario</th><th>Total de línea</th></tr></thead>
-                      <tbody>
-                        {(ventaDetalle.detalles || []).map((detalle) => (
-                          <tr key={detalle.id_detalle_venta}>
-                            <td>{detalle.nombre_producto || "Producto no encontrado"}</td>
-                            <td>{detalle.cantidad}</td>
-                            <td>S/ {Number(detalle.precio_unitario || 0).toFixed(2)}</td>
-                            <td>S/ {Number(detalle.total_linea || 0).toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-
-                <section style={{ marginTop: "0.75rem", marginBottom: "1rem" }}>
-                  <h3 style={{ marginBottom: "0.5rem" }}>Totales</h3>
-                  <div style={{ display: "grid", gap: "0.3rem", maxWidth: "360px", marginLeft: "auto" }}>
-                    <div style={{ borderTop: "1px solid rgba(148, 163, 184, 0.35)", marginTop: "0.35rem", paddingTop: "0.55rem", display: "flex", justifyContent: "space-between", gap: "1.5rem", fontSize: "1.05rem" }}>
-                      <strong>TOTAL</strong>
-                      <strong>S/ {Number(ventaDetalle.total || 0).toFixed(2)}</strong>
-                    </div>
-                  </div>
-                </section>
-
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
-                  <button type="button" className="primary-button" disabled={guardandoEstado || (formaPagoDetalle === normalizarFormaPago(ventaDetalle.forma_pago) && estadoDetalle === ventaDetalle.estado) || (estadoDetalle !== ventaDetalle.estado && ventaDetalle.estado === "anulada")} onClick={guardarCambiosVenta}>{guardandoEstado ? "Guardando..." : "Guardar cambio"}</button>
-                  <button type="button" className="action-button" onClick={cerrarDetalle}>Cerrar</button>
-                </div>
-              </>
-            )}
-          </div>
+        <div className="sales-lines-heading"><h3>Productos</h3><span>{detalles.length} {detalles.length === 1 ? "producto" : "productos"}</span></div>
+        <p className="sales-number-note">El correlativo se asigna de forma segura al registrar la venta.</p>
+        <div className="sales-lines">
+          {detalles.map((detail, index) => <div className="sales-line" key={index}>
+            <label className="sales-line-product"><SaleFieldLabel icon="product">Producto</SaleFieldLabel><select className="form-control" value={detail.producto_id} onChange={(event) => changeDetail(index, "producto_id", event.target.value)} required><option value="">Selecciona producto</option>{productos.filter((item) => item.activo).map((item) => <option key={item.id} value={item.id}>{item.codigo} — {item.nombre}</option>)}</select></label>
+            <div className="sales-line-fields">
+              <label><SaleFieldLabel icon="quantity">Cantidad</SaleFieldLabel><input className="form-control" type="number" min="1" step="1" value={detail.cantidad} onChange={(event) => changeDetail(index, "cantidad", event.target.value)} required /></label>
+              <label><SaleFieldLabel icon="price">Precio unitario</SaleFieldLabel><input className="form-control" type="text" value={detail.precio_unitario ? formatCurrency(toCents(detail.precio_unitario)) : ""} readOnly placeholder="Automático" /></label>
+              <div className="sales-line-amount"><SaleFieldLabel icon="total">Importe</SaleFieldLabel><strong>{formatCurrency(lineAmount(detail))}</strong></div>
+            </div>
+            <div className="sales-line-actions">
+              <button className="action-button sales-remove-line" type="button" disabled={detalles.length === 1} onClick={() => { setConfirmSale(false); setConfirmCancel(false); setDetalles((current) => current.filter((_, i) => i !== index)); }}>Quitar</button>
+            </div>
+          </div>)}
         </div>
-      )}
-    </>
-  );
+        <button className="action-button sales-add-line" type="button" onClick={() => { setConfirmSale(false); setConfirmCancel(false); setDetalles((current) => [...current, newLine()]); }}>+ Agregar producto</button>
+        <div className="sales-grand-total"><span>Total de la venta</span><strong>{formatCurrency(saleTotalCents)}</strong></div>
+        {confirmSale && <div className="sales-confirmation" role="alert">
+          <p>¿Confirmas que deseas registrar esta venta? Total: {formatCurrency(saleTotalCents)}. El correlativo definitivo se asignará al confirmar; el sugerido es <strong>{form.numero}</strong>.</p>
+          <div><button className="primary-button" type="button" disabled={saving} onClick={confirmarVenta}>{saving ? "Registrando..." : "Confirmar venta"}</button><button className="action-button" type="button" disabled={saving} onClick={() => setConfirmSale(false)}>Volver</button></div>
+        </div>}
+        {confirmCancel && <div className="sales-confirmation is-cancel" role="alert">
+          <p>Hay datos o productos ingresados. ¿Descartar esta venta?</p>
+          <div><button className="category-danger-button" type="button" onClick={descartarNuevaVenta}>Descartar venta</button><button className="action-button" type="button" onClick={() => setConfirmCancel(false)}>Seguir editando</button></div>
+        </div>}
+        <div className="account-modal-actions"><button className="primary-button" type="submit" disabled={saving || confirmSale}>{saving ? "Guardando..." : "Registrar venta"}</button><button className="action-button" type="button" disabled={saving} onClick={cancelarNuevaVenta}>Cancelar</button></div>
+      </form>
+    </section></div>}
+
+    {selected && <div className="account-modal-backdrop"><section className="account-modal sales-modal sale-detail-modal" role="dialog" aria-modal="true" aria-labelledby="sale-detail-title">
+      <div className="account-modal-header sales-modal-header">
+        <span className="dashboard-section-icon dashboard-section-icon-chart"><SaleIcon type="sales" /></span>
+        <div><h2 id="sale-detail-title">Venta {selected.numero}</h2><p>{formatDate(selected.fecha_comercial)} · {paymentLabels[selected.medio_pago] || selected.medio_pago}</p></div>
+        <span className={`badge sales-status-badge ${selected.estado === "realizada" ? "is-completed" : "is-annulled"}`}>{selected.estado === "realizada" ? "Realizada" : "Anulada"}</span>
+        <button className="account-modal-close" type="button" onClick={() => { setSelected(null); setConfirmAnnul(false); }}>×</button>
+      </div>
+      {detailError && <div className="error-message" role="alert">{detailError}</div>}
+      <section className="sale-detail-information">
+        <h3>Detalle de productos</h3>
+        <div className="table-responsive"><table><thead><tr><th>Producto</th><th>Cantidad</th><th>Precio unitario</th><th>Importe</th></tr></thead><tbody>
+          {(selected.detalles || []).map((detail) => <tr key={detail.id}><td>{detail.nombre_producto}</td><td>{detail.cantidad}</td><td>{formatCurrency(toCents(detail.precio_unitario))}</td><td>{formatCurrency(toCents(detail.importe))}</td></tr>)}
+        </tbody></table></div>
+        <div className="sales-grand-total"><span>Total</span><strong>{formatCurrency(toCents(selected.importe_total ?? "0"))}</strong></div>
+      </section>
+      {selected.estado === "realizada" && <section className="sale-annul-section">
+        <div className="sale-section-heading"><h3>Anulación</h3><p>Esta acción devolverá las unidades al inventario.</p></div>
+        <div className="sales-annul-fields">
+          <label><SaleFieldLabel icon="date">Fecha comercial de anulación</SaleFieldLabel><input className="form-control" type="date" value={annulDate} onChange={(event) => setAnnulDate(event.target.value)} /></label>
+          <label><SaleFieldLabel icon="reason">Motivo de anulación</SaleFieldLabel><input className="form-control" maxLength={250} value={annulReason} onChange={(event) => setAnnulReason(event.target.value)} /></label>
+        </div>
+        {!confirmAnnul
+          ? <button className="category-danger-button sale-annul-button" type="button" disabled={saving} onClick={() => setConfirmAnnul(true)}>Anular venta</button>
+          : <div className="sale-annul-confirmation" role="alert">
+            <p>¿Confirmas la anulación de la venta {selected.numero}? La operación no se puede deshacer.</p>
+            <div><button className="category-danger-button" type="button" disabled={saving} onClick={anularVenta}>{saving ? "Anulando..." : "Confirmar anulación"}</button><button className="category-cancel-button" type="button" disabled={saving} onClick={() => setConfirmAnnul(false)}>Cancelar</button></div>
+          </div>}
+      </section>}
+    </section></div>}
+  </>;
 }
 
 export default Ventas;

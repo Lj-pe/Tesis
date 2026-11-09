@@ -4,136 +4,48 @@ jest.mock('../src/config/database', () => ({
 }));
 
 const pool = require('../src/config/database');
-const { calcularEstadoInventario } = require('../src/utils/inventario');
-const { actualizarStock } = require('../src/services/inventarioTransaccional.service');
-const inventarioModel = require('../src/models/inventario.model');
+const inventoryModel = require('../src/models/inventario.model');
+const inventoryService = require('../src/services/inventarioTransaccional.service');
 
-describe('calcularEstadoInventario', () => {
-  test.each([
-    [0, 3, 'normal', 'agotado'],
-    [2, 3, 'normal', 'bajo'],
-    [3, 3, 'normal', 'bajo'],
-    [4, 3, 'agotado', 'normal'],
-    [0, 3, 'bloqueado', 'bloqueado'],
-  ])('calcula estado para stock %s, mínimo %s y estado previo %s', (stock, minimo, previo, esperado) => {
-    expect(calcularEstadoInventario(stock, minimo, previo)).toBe(esperado);
+describe('consultas de existencias', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('consulta todos los productos y deriva unidades desde vista_existencias', async () => {
+    pool.query.mockResolvedValueOnce([[{ producto_id: '9007199254740993', unidades_disponibles: '4' }]]);
+
+    await inventoryModel.getAllExistencias();
+
+    expect(pool.query.mock.calls[0][0]).toContain('LEFT JOIN vista_existencias');
+    expect(pool.query.mock.calls[0][0]).not.toContain('inventarios');
+  });
+
+  test('conserva los identificadores grandes como texto', async () => {
+    pool.query.mockResolvedValueOnce([[{ producto_id: '9007199254740993', unidades_disponibles: '0' }]]);
+
+    const result = await inventoryModel.getExistenciaByProductoId('9007199254740993');
+
+    expect(result.producto_id).toBe('9007199254740993');
+    expect(pool.query.mock.calls[0][1]).toEqual(['9007199254740993']);
   });
 });
 
-describe('actualizarStock', () => {
-  test('actualiza stock, estado y ambas fechas dentro de la transacción', async () => {
+describe('bloqueos de inventario', () => {
+  test('bloquea productos ordenando sus IDs sin convertirlos a Number', async () => {
     const connection = {
-      query: jest.fn()
-        .mockResolvedValueOnce([[{
-          stock_actual: 4,
-          stock_minimo: 2,
-          estado_inventario: 'normal',
-        }]])
-        .mockResolvedValueOnce([{ affectedRows: 1 }]),
+      query: jest.fn().mockResolvedValueOnce([[{ id: '2' }, { id: '10' }]]),
     };
 
-    await actualizarStock(connection, 12, -3);
+    await inventoryService.lockProductos(connection, ['10', '2', '10']);
 
-    expect(connection.query).toHaveBeenNthCalledWith(
-      1,
-      expect.stringContaining('FOR UPDATE'),
-      [12]
-    );
-    expect(connection.query).toHaveBeenNthCalledWith(
-      2,
-      expect.stringContaining('fecha_ultima_actualizacion = CURRENT_TIMESTAMP'),
-      [1, 'bajo', 12]
-    );
-    expect(connection.query.mock.calls[1][0]).toContain(
-      'fecha_actualizacion = CURRENT_TIMESTAMP'
-    );
+    expect(connection.query.mock.calls[0][1]).toEqual([['2', '10']]);
+    expect(connection.query.mock.calls[0][0]).toContain('ORDER BY id FOR UPDATE');
   });
 
-  test('conserva bloqueado cuando cambia el stock', async () => {
-    const connection = {
-      query: jest.fn()
-        .mockResolvedValueOnce([[{
-          stock_actual: 4,
-          stock_minimo: 2,
-          estado_inventario: 'bloqueado',
-        }]])
-        .mockResolvedValueOnce([{ affectedRows: 1 }]),
-    };
+  test('rechaza una salida superior a las existencias', async () => {
+    jest.spyOn(inventoryModel, 'getExistenciaByProductoId')
+      .mockResolvedValueOnce({ producto_id: '5', unidades_disponibles: '3' });
 
-    await actualizarStock(connection, 12, -1);
-
-    expect(connection.query.mock.calls[1][1]).toEqual([3, 'bloqueado', 12]);
-  });
-});
-
-describe('inventarioModel', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  test('calcula el estado al crear y actualiza ambas fechas', async () => {
-    pool.query.mockResolvedValueOnce([{ insertId: 9 }]);
-
-    const result = await inventarioModel.createInventario({
-      producto_id: 3,
-      stock_actual: 0,
-      stock_minimo: 2,
-      estado_inventario: 'normal',
-    });
-
-    expect(result.estado_inventario).toBe('agotado');
-    expect(pool.query.mock.calls[0][0]).toContain('fecha_ultima_actualizacion');
-    expect(pool.query.mock.calls[0][1]).toEqual([3, 0, 2, null, 'agotado']);
-  });
-
-  test('recalcula estado después de una actualización manual', async () => {
-    const connection = {
-      beginTransaction: jest.fn(),
-      query: jest.fn()
-        .mockResolvedValueOnce([[{
-          stock_actual: 5,
-          stock_minimo: 2,
-          estado_inventario: 'normal',
-        }]])
-        .mockResolvedValueOnce([{ affectedRows: 1 }]),
-      commit: jest.fn(),
-      rollback: jest.fn(),
-      release: jest.fn(),
-    };
-    pool.getConnection.mockResolvedValueOnce(connection);
-
-    const result = await inventarioModel.updateInventario(9, {
-      stock_actual: 2,
-      estado_inventario: 'normal',
-    });
-
-    expect(result).toBe(true);
-    expect(connection.query.mock.calls[1][0]).toContain(
-      'fecha_ultima_actualizacion = CURRENT_TIMESTAMP'
-    );
-    expect(connection.query.mock.calls[1][1]).toEqual([2, 'bajo', 9]);
-    expect(connection.commit).toHaveBeenCalledTimes(1);
-    expect(connection.release).toHaveBeenCalledTimes(1);
-  });
-
-  test('conserva bloqueo en actualización manual si no se solicita quitarlo', async () => {
-    const connection = {
-      beginTransaction: jest.fn(),
-      query: jest.fn()
-        .mockResolvedValueOnce([[{
-          stock_actual: 5,
-          stock_minimo: 2,
-          estado_inventario: 'bloqueado',
-        }]])
-        .mockResolvedValueOnce([{ affectedRows: 1 }]),
-      commit: jest.fn(),
-      rollback: jest.fn(),
-      release: jest.fn(),
-    };
-    pool.getConnection.mockResolvedValueOnce(connection);
-
-    await inventarioModel.updateInventario(9, { stock_actual: 1 });
-
-    expect(connection.query.mock.calls[1][1]).toEqual([1, 'bloqueado', 9]);
+    await expect(inventoryService.validarStockDisponible({}, '5', '4'))
+      .rejects.toMatchObject({ statusCode: 409 });
   });
 });

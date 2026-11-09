@@ -6,5 +6,6 @@ const router = express.Router();
 
 router.post('/login', authController.login);
 router.get('/me', authMiddleware, authController.getMe);
+router.put('/clave', authMiddleware, authController.cambiarClave);
 
 module.exports = router;

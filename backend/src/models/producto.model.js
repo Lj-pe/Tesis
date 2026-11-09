@@ -1,280 +1,159 @@
 const pool = require('../config/database');
 
+const PRODUCT_SELECT = `
+  SELECT p.id, p.codigo, p.codigo_barras, p.categoria_id, p.nombre, p.marca,
+         p.presentacion, p.precio_venta, p.dias_seguridad, p.activo,
+         p.creado_en, p.actualizado_en,
+         COALESCE(e.unidades_disponibles, 0) AS unidades_disponibles
+  FROM productos p
+  LEFT JOIN vista_existencias e ON e.producto_id = p.id`;
+
 async function getAllProductos() {
-  const [rows] = await pool.query(
-    `SELECT p.*
-     FROM productos p
-     ORDER BY p.id_producto ASC`
-  );
+  const [rows] = await pool.query(`${PRODUCT_SELECT} ORDER BY p.nombre ASC`);
   return rows;
 }
 
-async function getProductoById(id) {
-  const [rows] = await pool.query(
-    `SELECT p.*
-     FROM productos p
-     WHERE p.id_producto = ?`,
+async function getProductoById(id, executor = pool) {
+  const [rows] = await executor.query(`${PRODUCT_SELECT} WHERE p.id = ?`, [id]);
+  return rows[0] || null;
+}
+
+async function createProducto(data) {
+  const columns = [
+    'codigo', 'codigo_barras', 'categoria_id', 'nombre', 'marca', 'presentacion',
+    'precio_venta',
+  ];
+  const values = [
+    data.codigo, data.codigo_barras ?? null, data.categoria_id, data.nombre,
+    data.marca ?? null, data.presentacion, data.precio_venta,
+  ];
+  if (data.dias_seguridad !== undefined) {
+    columns.push('dias_seguridad');
+    values.push(data.dias_seguridad);
+  }
+  if (data.activo !== undefined) {
+    columns.push('activo');
+    values.push(data.activo);
+  }
+  const [result] = await pool.query(
+    `INSERT INTO productos (${columns.join(', ')})
+     VALUES (${columns.map(() => '?').join(', ')})`,
+    values
+  );
+  return getProductoById(result.insertId);
+}
+
+async function updateProducto(id, data) {
+  const fields = [];
+  const values = [];
+  for (const field of [
+    'codigo', 'codigo_barras', 'categoria_id', 'nombre', 'marca',
+    'presentacion', 'precio_venta', 'dias_seguridad', 'activo',
+  ]) {
+    if (data[field] !== undefined) {
+      fields.push(`${field} = ?`);
+      values.push(data[field] === null && field === 'codigo_barras' ? null : data[field]);
+    }
+  }
+  if (!fields.length) return false;
+  values.push(id);
+  const [result] = await pool.query(
+    `UPDATE productos SET ${fields.join(', ')} WHERE id = ?`,
+    values
+  );
+  return result.affectedRows > 0;
+}
+
+async function desactivarProducto(id) {
+  const [result] = await pool.query('UPDATE productos SET activo = 0 WHERE id = ?', [id]);
+  return result.affectedRows > 0;
+}
+
+async function getProductoProveedor(id, executor = pool) {
+  const [rows] = await executor.query(
+    `SELECT pp.id, pp.proveedor_id, pp.producto_id, pp.presentacion_compra,
+            pp.unidades_por_presentacion, pp.costo_presentacion,
+            pp.minimo_presentaciones, pp.preferido, pp.activo,
+            p.codigo, p.nombre AS nombre_producto, p.presentacion AS presentacion_producto
+     FROM productos_proveedores pp
+     JOIN productos p ON p.id = pp.producto_id
+     WHERE pp.id = ?`,
     [id]
   );
   return rows[0] || null;
 }
 
-async function createProducto(data) {
-  const {
-    categoria_id,
-    codigo_sku,
-    nombre,
-    descripcion,
-    estado,
-    unidad_medida,
-    precio_venta_actual,
-    costo_promedio_actual,
-  } = data;
-  const estadoInicial = estado ?? 'activo';
-
-  const [result] = await pool.query(
-    `INSERT INTO productos (
-      categoria_id,
-      codigo_sku,
-      nombre,
-      descripcion,
-      estado,
-      fecha_inactivacion,
-      unidad_medida,
-      precio_venta_actual,
-      costo_promedio_actual
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      categoria_id,
-      codigo_sku,
-      nombre,
-      descripcion ?? null,
-      estadoInicial,
-      estadoInicial === 'inactivo' ? new Date() : null,
-      unidad_medida,
-      precio_venta_actual,
-      costo_promedio_actual ?? null,
-    ]
+async function getProductosProveedor({ proveedorId, productoId, soloActivos = true } = {}) {
+  const conditions = [];
+  const values = [];
+  if (proveedorId !== undefined) {
+    conditions.push('pp.proveedor_id = ?');
+    values.push(proveedorId);
+  }
+  if (productoId !== undefined) {
+    conditions.push('pp.producto_id = ?');
+    values.push(productoId);
+  }
+  if (soloActivos) conditions.push('pp.activo = 1');
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const [rows] = await pool.query(
+    `SELECT pp.id, pp.proveedor_id, pp.producto_id, pp.presentacion_compra,
+            pp.unidades_por_presentacion, pp.costo_presentacion,
+            pp.minimo_presentaciones, pp.preferido, pp.activo,
+            p.codigo, p.nombre AS nombre_producto, p.presentacion AS presentacion_producto,
+            pr.nombre AS nombre_proveedor
+     FROM productos_proveedores pp
+     JOIN productos p ON p.id = pp.producto_id
+     JOIN proveedores pr ON pr.id = pp.proveedor_id
+     ${where}
+     ORDER BY pr.nombre, p.nombre`,
+    values
   );
-
-  return {
-    id_producto: result.insertId,
-    categoria_id,
-    codigo_sku,
-    nombre,
-    descripcion: descripcion ?? null,
-    estado: estadoInicial,
-    fecha_inactivacion: estadoInicial === 'inactivo' ? new Date() : null,
-    unidad_medida,
-    precio_venta_actual,
-    costo_promedio_actual: costo_promedio_actual ?? null,
-  };
+  return rows;
 }
 
-async function updateProducto(id, data) {
-  const connection = await pool.getConnection();
-
-  try {
-    await connection.beginTransaction();
-
-    const [productoRows] = await connection.query(
-      'SELECT * FROM productos WHERE id_producto = ? FOR UPDATE',
-      [id]
-    );
-    const productoActual = productoRows[0];
-
-    if (!productoActual) {
-      await connection.rollback();
-      return null;
+async function createProductoProveedor(data) {
+  const columns = [
+    'proveedor_id', 'producto_id', 'presentacion_compra',
+    'unidades_por_presentacion', 'costo_presentacion',
+  ];
+  const values = [
+    data.proveedor_id, data.producto_id, data.presentacion_compra,
+    data.unidades_por_presentacion, data.costo_presentacion,
+  ];
+  for (const field of ['minimo_presentaciones', 'preferido', 'activo']) {
+    if (data[field] !== undefined) {
+      columns.push(field);
+      values.push(['preferido', 'activo'].includes(field) ? (data[field] ? 1 : 0) : data[field]);
     }
-
-    const fields = [];
-    const values = [];
-    let estadoSiguiente = data.estado ?? productoActual.estado;
-    let categoriaCambiada = false;
-
-    if (data.categoria_id !== undefined) {
-      const [categoriaRows] = await connection.query(
-        'SELECT estado FROM categorias WHERE id_categoria = ? FOR UPDATE',
-        [data.categoria_id]
-      );
-
-      if (categoriaRows.length === 0) {
-        const error = new Error('La categoría especificada no existe');
-        error.statusCode = 400;
-        throw error;
-      }
-
-      const estadoCategoria = categoriaRows[0].estado;
-      if (
-        estadoCategoria === 'inactivo' &&
-        data.estado === 'activo' &&
-        productoActual.estado !== 'suspendido'
-      ) {
-        const error = new Error(
-          'No se puede activar el producto porque su categoría está inactiva'
-        );
-        error.statusCode = 409;
-        throw error;
-      }
-
-      categoriaCambiada = Number(productoActual.categoria_id) !== Number(data.categoria_id);
-      if (categoriaCambiada && productoActual.estado !== 'suspendido') {
-        estadoSiguiente = estadoCategoria === 'activo' ? 'activo' : 'inactivo';
-      }
-      fields.push('categoria_id = ?');
-      values.push(data.categoria_id);
-    }
-
-    if (data.codigo_sku !== undefined) {
-      fields.push('codigo_sku = ?');
-      values.push(data.codigo_sku);
-    }
-
-    if (data.nombre !== undefined) {
-      fields.push('nombre = ?');
-      values.push(data.nombre);
-    }
-
-    if (data.descripcion !== undefined) {
-      fields.push('descripcion = ?');
-      values.push(data.descripcion);
-    }
-
-    if (data.estado !== undefined || data.categoria_id !== undefined) {
-      fields.push('estado = ?');
-      values.push(estadoSiguiente);
-    }
-
-    if (data.unidad_medida !== undefined) {
-      fields.push('unidad_medida = ?');
-      values.push(data.unidad_medida);
-    }
-
-    if (data.precio_venta_actual !== undefined) {
-      fields.push('precio_venta_actual = ?');
-      values.push(data.precio_venta_actual);
-    }
-
-    if (data.costo_promedio_actual !== undefined) {
-      fields.push('costo_promedio_actual = ?');
-      values.push(data.costo_promedio_actual);
-    }
-
-    if (estadoSiguiente === 'inactivo' && productoActual.estado !== 'inactivo') {
-      fields.push('fecha_inactivacion = CURRENT_TIMESTAMP');
-    } else if (estadoSiguiente === 'activo' && productoActual.estado !== 'activo') {
-      fields.push('fecha_inactivacion = NULL');
-    }
-
-    if (fields.length === 0) {
-      await connection.rollback();
-      return null;
-    }
-
-    fields.push('fecha_actualizacion = CURRENT_TIMESTAMP');
-    values.push(id);
-
-    await connection.query(
-      `UPDATE productos SET ${fields.join(', ')} WHERE id_producto = ?`,
-      values
-    );
-
-    await connection.commit();
-    return true;
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
   }
+  const [result] = await pool.query(
+    `INSERT INTO productos_proveedores (${columns.join(', ')})
+     VALUES (${columns.map(() => '?').join(', ')})`,
+    values
+  );
+  return getProductoProveedor(result.insertId);
 }
 
-async function deleteProducto(id) {
-  const connection = await pool.getConnection();
-
-  try {
-    await connection.beginTransaction();
-
-    const [productoRows] = await connection.query(
-      'SELECT * FROM productos WHERE id_producto = ? FOR UPDATE',
-      [id]
-    );
-    const producto = productoRows[0];
-
-    if (!producto) {
-      await connection.rollback();
-      return { affectedRows: 0 };
+async function updateProductoProveedor(id, data) {
+  const fields = [];
+  const values = [];
+  for (const field of [
+    'presentacion_compra', 'unidades_por_presentacion', 'costo_presentacion',
+    'minimo_presentaciones', 'preferido', 'activo',
+  ]) {
+    if (data[field] !== undefined) {
+      fields.push(`${field} = ?`);
+      values.push(['preferido', 'activo'].includes(field) ? (data[field] ? 1 : 0) : data[field]);
     }
-
-    const [relatedRows] = await connection.query(
-      `SELECT
-        EXISTS (SELECT 1 FROM inventarios WHERE producto_id = ?) AS inventarios,
-        EXISTS (SELECT 1 FROM detalle_compras WHERE producto_id = ?) AS detalle_compras,
-        EXISTS (SELECT 1 FROM detalle_ventas WHERE producto_id = ?) AS detalle_ventas,
-        EXISTS (SELECT 1 FROM predicciones WHERE producto_id = ?) AS predicciones`,
-      [id, id, id, id]
-    );
-    const tieneRelaciones = Object.values(relatedRows[0]).some(Boolean);
-
-    if (producto.estado === 'activo' && tieneRelaciones) {
-      await connection.query(
-        `UPDATE productos
-         SET estado = 'inactivo',
-             fecha_inactivacion = CURRENT_TIMESTAMP,
-             fecha_actualizacion = CURRENT_TIMESTAMP
-         WHERE id_producto = ?`,
-        [id]
-      );
-
-      await connection.commit();
-      return {
-        affectedRows: 0,
-        desactivado: true,
-        message: 'El producto fue desactivado porque tiene registros asociados y no puede eliminarse físicamente',
-      };
-    }
-
-    if (producto.estado !== 'inactivo') {
-      const error = new Error('El producto debe estar inactivo antes de eliminarse');
-      error.statusCode = 409;
-      throw error;
-    }
-
-    if (!producto.fecha_inactivacion) {
-      const error = new Error('No existe una fecha de inactivación válida para este producto');
-      error.statusCode = 409;
-      throw error;
-    }
-
-    if (tieneRelaciones) {
-      const error = new Error('El producto tiene registros relacionados y debe conservarse como inactivo');
-      error.statusCode = 409;
-      throw error;
-    }
-
-    const [result] = await connection.query(
-      `DELETE FROM productos
-       WHERE id_producto = ?
-         AND estado = 'inactivo'
-         AND fecha_inactivacion <= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 30 DAY)`,
-      [id]
-    );
-
-    if (result.affectedRows === 0) {
-      const error = new Error('El producto aún no cumple 30 días de inactivación');
-      error.statusCode = 409;
-      throw error;
-    }
-
-    await connection.commit();
-    return result;
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
   }
+  if (!fields.length) return false;
+  values.push(id);
+  const [result] = await pool.query(
+    `UPDATE productos_proveedores SET ${fields.join(', ')} WHERE id = ?`,
+    values
+  );
+  return result.affectedRows > 0;
 }
 
 module.exports = {
@@ -282,5 +161,9 @@ module.exports = {
   getProductoById,
   createProducto,
   updateProducto,
-  deleteProducto,
+  desactivarProducto,
+  getProductoProveedor,
+  getProductosProveedor,
+  createProductoProveedor,
+  updateProductoProveedor,
 };

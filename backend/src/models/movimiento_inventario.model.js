@@ -1,155 +1,54 @@
 const pool = require('../config/database');
 
 async function getAllMovimientosInventario() {
-  const [rows] = await pool.query('SELECT * FROM movimientos_inventario ORDER BY id_movimiento ASC');
+  const [rows] = await pool.query(
+    `SELECT m.id, m.clave_operacion, m.producto_id,
+            p.codigo AS codigo_producto, p.nombre AS nombre_producto,
+            m.tipo, m.variacion_unidades, m.ocurrido_en, m.fecha_comercial,
+            m.detalle_venta_id, m.detalle_recepcion_id,
+            m.motivo_ajuste, m.descripcion_ajuste,
+            m.usuario_id, u.nombre_usuario, m.creado_en
+     FROM movimientos_inventario m
+     JOIN productos p ON p.id = m.producto_id
+     JOIN usuarios u ON u.id = m.usuario_id
+     ORDER BY m.ocurrido_en DESC, m.id DESC`
+  );
   return rows;
 }
 
 async function getMovimientoInventarioById(id) {
-  const [rows] = await pool.query('SELECT * FROM movimientos_inventario WHERE id_movimiento = ?', [id]);
+  const [rows] = await pool.query(
+    `SELECT id, clave_operacion, producto_id, tipo, variacion_unidades,
+            ocurrido_en, fecha_comercial, detalle_venta_id, detalle_recepcion_id,
+            motivo_ajuste, descripcion_ajuste, usuario_id, creado_en
+     FROM movimientos_inventario WHERE id = ?`,
+    [id]
+  );
   return rows[0] || null;
 }
 
-async function createMovimientoInventario(data) {
-  const {
-    inventario_id,
-    tipo_movimiento,
-    cantidad,
-    motivo,
-    compra_id,
-    venta_id,
-    usuario_id,
-    fecha_movimiento,
-    estado,
-    observaciones,
-  } = data;
-
-  const columns = [
-    'inventario_id',
-    'tipo_movimiento',
-    'cantidad',
-    'motivo',
-    'compra_id',
-    'venta_id',
-    'usuario_id',
-    'estado',
-    'observaciones',
-  ];
-
-  const values = [
-    inventario_id,
-    tipo_movimiento,
-    cantidad,
-    motivo ?? null,
-    compra_id ?? null,
-    venta_id ?? null,
-    usuario_id,
-    estado ?? 'confirmado',
-    observaciones ?? null,
-  ];
-
-  if (fecha_movimiento !== undefined && fecha_movimiento !== null) {
-    columns.push('fecha_movimiento');
-    values.push(fecha_movimiento);
-  }
-
-  const placeholders = columns.map(() => '?').join(', ');
-
-  const [result] = await pool.query(
-    `INSERT INTO movimientos_inventario (${columns.join(', ')}) VALUES (${placeholders})`,
-    values
+async function createMovimiento(connection, movimiento) {
+  const [result] = await connection.query(
+    `INSERT INTO movimientos_inventario (
+      clave_operacion, producto_id, tipo, variacion_unidades, ocurrido_en,
+      fecha_comercial, detalle_venta_id, detalle_recepcion_id, motivo_ajuste,
+      descripcion_ajuste, usuario_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      movimiento.clave_operacion,
+      movimiento.producto_id,
+      movimiento.tipo,
+      movimiento.variacion_unidades,
+      movimiento.ocurrido_en,
+      movimiento.fecha_comercial,
+      movimiento.detalle_venta_id ?? null,
+      movimiento.detalle_recepcion_id ?? null,
+      movimiento.motivo_ajuste ?? null,
+      movimiento.descripcion_ajuste ?? null,
+      movimiento.usuario_id,
+    ]
   );
-
-  return {
-    id_movimiento: result.insertId,
-    inventario_id,
-    tipo_movimiento,
-    cantidad,
-    motivo: motivo ?? null,
-    compra_id: compra_id ?? null,
-    venta_id: venta_id ?? null,
-    usuario_id,
-    fecha_movimiento: fecha_movimiento ?? null,
-    estado: estado ?? 'confirmado',
-    observaciones: observaciones ?? null,
-  };
+  return result.insertId;
 }
 
-async function updateMovimientoInventario(id, data) {
-  const fields = [];
-  const values = [];
-
-  if (data.inventario_id !== undefined) {
-    fields.push('inventario_id = ?');
-    values.push(data.inventario_id);
-  }
-
-  if (data.tipo_movimiento !== undefined) {
-    fields.push('tipo_movimiento = ?');
-    values.push(data.tipo_movimiento);
-  }
-
-  if (data.cantidad !== undefined) {
-    fields.push('cantidad = ?');
-    values.push(data.cantidad);
-  }
-
-  if (data.motivo !== undefined) {
-    fields.push('motivo = ?');
-    values.push(data.motivo);
-  }
-
-  if (data.compra_id !== undefined) {
-    fields.push('compra_id = ?');
-    values.push(data.compra_id);
-  }
-
-  if (data.venta_id !== undefined) {
-    fields.push('venta_id = ?');
-    values.push(data.venta_id);
-  }
-
-  if (data.usuario_id !== undefined) {
-    fields.push('usuario_id = ?');
-    values.push(data.usuario_id);
-  }
-
-  if (data.fecha_movimiento !== undefined) {
-    fields.push('fecha_movimiento = ?');
-    values.push(data.fecha_movimiento);
-  }
-
-  if (data.estado !== undefined) {
-    fields.push('estado = ?');
-    values.push(data.estado);
-  }
-
-  if (data.observaciones !== undefined) {
-    fields.push('observaciones = ?');
-    values.push(data.observaciones);
-  }
-
-  if (fields.length === 0) {
-    return null;
-  }
-
-  await pool.query(
-    `UPDATE movimientos_inventario SET ${fields.join(', ')} WHERE id_movimiento = ?`,
-    [...values, id]
-  );
-
-  return true;
-}
-
-async function deleteMovimientoInventario(id) {
-  const [result] = await pool.query('DELETE FROM movimientos_inventario WHERE id_movimiento = ?', [id]);
-  return result;
-}
-
-module.exports = {
-  getAllMovimientosInventario,
-  getMovimientoInventarioById,
-  createMovimientoInventario,
-  updateMovimientoInventario,
-  deleteMovimientoInventario,
-};
+module.exports = { getAllMovimientosInventario, getMovimientoInventarioById, createMovimiento };

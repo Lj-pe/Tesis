@@ -1,45 +1,35 @@
 const authService = require('../services/auth.service');
-const permisoModel = require('../models/permiso.model');
+const usuarioModel = require('../models/usuario.model');
 
 async function login(req, res) {
   try {
-    const { username, email, password } = req.body;
-
-    if ((!username && !email) || !password) {
-      return res.status(400).json({
-        message: 'Se requiere username o email y password',
-      });
-    }
-
-    const result = await authService.login({ username, email, password });
-
+    const result = await authService.login(req.body);
     return res.status(200).json(result);
   } catch (error) {
-    const status = error.status || 500;
-    return res.status(status).json({
-      message: error.message || 'Error durante el login',
-    });
+    return res.status(error.status || 500).json({ message: error.message || 'Error durante el login' });
   }
 }
 
 async function getMe(req, res) {
-  try {
-    const permisosGuardados = await permisoModel.getPermisosByRolId(req.user.rol_id);
-    const permisosPorModulo = new Map(
-      permisosGuardados.map(({ modulo, acceso }) => [modulo, Boolean(acceso)])
-    );
-    const permisos = permisoModel.MODULOS_PERMITIDOS.map((modulo) => ({
-      modulo,
-      acceso: permisosPorModulo.get(modulo) ?? false,
-    }));
+  return res.status(200).json(req.user);
+}
 
-    return res.status(200).json({ ...req.user, permisos });
+async function cambiarClave(req, res) {
+  try {
+    const result = await authService.cambiarClave(
+      req.user.id,
+      req.body.clave_actual,
+      req.body.clave_nueva
+    );
+    const usuario = await usuarioModel.getUsuarioById(req.user.id);
+    return res.status(200).json({ ...result, user: usuario });
   } catch (error) {
-    return res.status(500).json({ message: 'Error al obtener permisos del usuario', error: error.message });
+    return res.status(error.status || 500).json({ message: error.message || 'Error al cambiar clave' });
   }
 }
 
 module.exports = {
   login,
   getMe,
+  cambiarClave,
 };

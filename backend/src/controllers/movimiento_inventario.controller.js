@@ -1,153 +1,56 @@
-const movimientoInventarioModel = require('../models/movimiento_inventario.model');
+const movimientoModel = require('../models/movimiento_inventario.model');
+const { crearAjusteTransaccional } = require('../services/inventarioTransaccional.service');
 
 async function getAllMovimientosInventario(req, res) {
   try {
-    const movimientosInventario = await movimientoInventarioModel.getAllMovimientosInventario();
-    res.status(200).json(movimientosInventario);
+    return res.status(200).json(await movimientoModel.getAllMovimientosInventario());
   } catch (error) {
-    res.status(500).json({ message: 'Error al obtener movimientos de inventario', error: error.message });
+    return res.status(500).json({ message: 'Error al obtener movimientos', error: error.message });
   }
 }
 
 async function getMovimientoInventarioById(req, res) {
   try {
-    const movimientoInventario = await movimientoInventarioModel.getMovimientoInventarioById(req.params.id);
-
-    if (!movimientoInventario) {
-      return res.status(404).json({ message: 'Movimiento de inventario no encontrado' });
-    }
-
-    return res.status(200).json(movimientoInventario);
+    const movimiento = await movimientoModel.getMovimientoInventarioById(req.params.id);
+    if (!movimiento) return res.status(404).json({ message: 'Movimiento no encontrado' });
+    return res.status(200).json(movimiento);
   } catch (error) {
-    return res.status(500).json({ message: 'Error al obtener movimiento de inventario', error: error.message });
+    return res.status(500).json({ message: 'Error al obtener movimiento', error: error.message });
   }
 }
 
-async function createMovimientoInventario(req, res) {
+async function crearAjuste(req, res) {
+  const { producto_id, variacion_unidades, fecha_comercial, motivo_ajuste, descripcion_ajuste, clave_operacion } = req.body;
+  const parsedDate = typeof fecha_comercial === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fecha_comercial)
+    ? new Date(`${fecha_comercial}T00:00:00Z`)
+    : null;
+  const validDate = parsedDate && !Number.isNaN(parsedDate.getTime()) &&
+    parsedDate.toISOString().slice(0, 10) === fecha_comercial;
+  const validQuantity = /^-?[1-9]\d*$/.test(String(variacion_unidades)) &&
+    BigInt(variacion_unidades) >= -9223372036854775808n &&
+    BigInt(variacion_unidades) <= 9223372036854775807n;
+  if (!/^\d+$/.test(String(producto_id)) || BigInt(producto_id) < 1n ||
+      !validQuantity || !validDate ||
+      typeof motivo_ajuste !== 'string' || !motivo_ajuste.trim() ||
+      typeof clave_operacion !== 'string' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clave_operacion)) {
+    return res.status(400).json({ message: 'Datos de ajuste inválidos' });
+  }
   try {
-    const {
-      inventario_id,
-      tipo_movimiento,
-      cantidad,
-      motivo,
-      compra_id,
-      venta_id,
-      usuario_id,
-      fecha_movimiento,
-      estado,
-      observaciones,
-    } = req.body;
-
-    if (!inventario_id || !tipo_movimiento || !cantidad || !usuario_id) {
-      return res.status(400).json({
-        message: 'Los campos inventario_id, tipo_movimiento, cantidad y usuario_id son obligatorios',
-      });
-    }
-
-    const tiposValidos = ['entrada', 'salida', 'ajuste', 'devolucion', 'perdida'];
-    if (!tiposValidos.includes(tipo_movimiento)) {
-      return res.status(400).json({ message: 'El campo tipo_movimiento debe ser entrada, salida, ajuste, devolucion o perdida' });
-    }
-
-    if (!Number.isInteger(cantidad) || cantidad <= 0) {
-      return res.status(400).json({ message: 'La cantidad debe ser un entero mayor que 0' });
-    }
-
-    const estadosValidos = ['confirmado', 'anulado'];
-    if (estado && !estadosValidos.includes(estado)) {
-      return res.status(400).json({ message: 'El campo estado debe ser confirmado o anulado' });
-    }
-
-    const movimientoInventario = await movimientoInventarioModel.createMovimientoInventario({
-      inventario_id,
-      tipo_movimiento,
-      cantidad,
-      motivo,
-      compra_id,
-      venta_id,
-      usuario_id,
-      fecha_movimiento,
-      estado,
-      observaciones,
-    });
-
-    return res.status(201).json(movimientoInventario);
+    const result = await crearAjusteTransaccional({
+      producto_id: String(producto_id),
+      variacion_unidades: String(variacion_unidades),
+      fecha_comercial,
+      motivo_ajuste,
+      descripcion_ajuste: descripcion_ajuste || null,
+      clave_operacion,
+    }, req.user.id);
+    return res.status(result.duplicado ? 200 : 201).json(result);
   } catch (error) {
-    if (error.code === 'ER_NO_REFERENCED_ROW_2' || error.code === 'ER_NO_REFERENCED_ROW') {
-      return res.status(400).json({ message: 'Uno o más identificadores referenciados no existen' });
-    }
-
-    return res.status(500).json({ message: 'Error al crear movimiento de inventario', error: error.message });
+    const status = error.statusCode ||
+      (['ER_BAD_FIELD_ERROR', 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD'].includes(error.code) ? 400 : 500);
+    return res.status(status).json({ message: error.message || 'Error al registrar ajuste' });
   }
 }
 
-async function updateMovimientoInventario(req, res) {
-  try {
-    const movimientoInventario = await movimientoInventarioModel.getMovimientoInventarioById(req.params.id);
-
-    if (!movimientoInventario) {
-      return res.status(404).json({ message: 'Movimiento de inventario no encontrado' });
-    }
-
-    if (req.body.cantidad !== undefined && (!Number.isInteger(req.body.cantidad) || req.body.cantidad <= 0)) {
-      return res.status(400).json({ message: 'La cantidad debe ser un entero mayor que 0' });
-    }
-
-    if (req.body.tipo_movimiento !== undefined) {
-      const tiposValidos = ['entrada', 'salida', 'ajuste', 'devolucion', 'perdida'];
-      if (!tiposValidos.includes(req.body.tipo_movimiento)) {
-        return res.status(400).json({ message: 'El campo tipo_movimiento debe ser entrada, salida, ajuste, devolucion o perdida' });
-      }
-    }
-
-    if (req.body.estado !== undefined) {
-      const estadosValidos = ['confirmado', 'anulado'];
-      if (!estadosValidos.includes(req.body.estado)) {
-        return res.status(400).json({ message: 'El campo estado debe ser confirmado o anulado' });
-      }
-    }
-
-    const updated = await movimientoInventarioModel.updateMovimientoInventario(req.params.id, req.body);
-
-    if (!updated) {
-      return res.status(400).json({ message: 'No se enviaron datos para actualizar' });
-    }
-
-    const movimientoInventarioActualizado = await movimientoInventarioModel.getMovimientoInventarioById(req.params.id);
-    return res.status(200).json(movimientoInventarioActualizado);
-  } catch (error) {
-    if (error.code === 'ER_NO_REFERENCED_ROW_2' || error.code === 'ER_NO_REFERENCED_ROW') {
-      return res.status(400).json({ message: 'Uno o más identificadores referenciados no existen' });
-    }
-
-    return res.status(500).json({ message: 'Error al actualizar movimiento de inventario', error: error.message });
-  }
-}
-
-async function deleteMovimientoInventario(req, res) {
-  try {
-    const movimientoInventario = await movimientoInventarioModel.getMovimientoInventarioById(req.params.id);
-
-    if (!movimientoInventario) {
-      return res.status(404).json({ message: 'Movimiento de inventario no encontrado' });
-    }
-
-    const result = await movimientoInventarioModel.deleteMovimientoInventario(req.params.id);
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: 'Movimiento de inventario no encontrado' });
-    }
-
-    return res.status(200).json({ message: 'Movimiento de inventario eliminado correctamente' });
-  } catch (error) {
-    return res.status(500).json({ message: 'Error al eliminar movimiento de inventario', error: error.message });
-  }
-}
-
-module.exports = {
-  getAllMovimientosInventario,
-  getMovimientoInventarioById,
-  createMovimientoInventario,
-  updateMovimientoInventario,
-  deleteMovimientoInventario,
-};
+module.exports = { getAllMovimientosInventario, getMovimientoInventarioById, crearAjuste };

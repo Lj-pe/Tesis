@@ -8,10 +8,7 @@ router.use(authorizeModule('Compras'));
 
 router.get('/', compraController.getAllCompras);
 router.get('/:id', compraController.getCompraById);
-router.post('/', compraController.createCompra);
 router.post('/transaccional', compraController.createCompraTransaccional);
-router.post('/:id/estado', compraController.cambiarEstadoCompraTransaccional);
-router.put('/:id', compraController.updateCompra);
-router.delete('/:id', compraController.deleteCompra);
+router.post('/:id/recepciones', compraController.crearRecepcion);
 
 module.exports = router;

@@ -1,5 +1,4 @@
 const usuarioModel = require('../models/usuario.model');
-const rolModel = require('../models/rol.model');
 const { verifyToken } = require('../utils/jwt');
 
 async function authMiddleware(req, res, next) {
@@ -18,37 +17,21 @@ async function authMiddleware(req, res, next) {
 
     const decoded = verifyToken(token);
 
-    const user = await usuarioModel.getUsuarioById(decoded.id_usuario);
+    const user = await usuarioModel.getUsuarioById(decoded.id);
 
     if (!user) {
       return res.status(401).json({ message: 'Usuario no autorizado' });
     }
 
-    if (user.estado !== 'activo') {
-      return res.status(401).json({ message: 'Usuario no autorizado' });
+    req.user = user;
+    const debeCambiarClave = user.debe_cambiar_clave === true ||
+      user.debe_cambiar_clave === 1 ||
+      user.debe_cambiar_clave === '1';
+    const rutaActual = `${req.baseUrl}${req.path}`.split('?')[0];
+    const rutasPermitidas = ['/api/auth/me', '/api/auth/clave'];
+    if (debeCambiarClave && !rutasPermitidas.includes(rutaActual)) {
+      return res.status(403).json({ message: 'Debe cambiar su clave antes de continuar' });
     }
-
-    const role = await rolModel.getRolById(user.rol_id);
-
-    req.user = {
-      id_usuario: user.id_usuario,
-      rol_id: user.rol_id,
-      nombre: user.nombre,
-      apellido: user.apellido,
-      username: user.username,
-      email: user.email,
-      estado: user.estado,
-      ultimo_acceso: user.ultimo_acceso,
-      fecha_creacion: user.fecha_creacion,
-      fecha_actualizacion: user.fecha_actualizacion,
-      rol: role
-        ? {
-            id_rol: role.id_rol,
-            nombre: role.nombre,
-            estado: role.estado,
-          }
-        : null,
-    };
 
     return next();
   } catch (error) {

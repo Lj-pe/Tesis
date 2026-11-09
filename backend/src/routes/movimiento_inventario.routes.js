@@ -6,8 +6,6 @@ const router = express.Router();
 
 router.get('/api/movimientos-inventario', authorizeModule('Movimientos'), movimientoInventarioController.getAllMovimientosInventario);
 router.get('/api/movimientos-inventario/:id', authorizeModule('Movimientos'), movimientoInventarioController.getMovimientoInventarioById);
-router.post('/api/movimientos-inventario', authorizeModule('Movimientos'), movimientoInventarioController.createMovimientoInventario);
-router.put('/api/movimientos-inventario/:id', authorizeModule('Movimientos'), movimientoInventarioController.updateMovimientoInventario);
-router.delete('/api/movimientos-inventario/:id', authorizeModule('Movimientos'), movimientoInventarioController.deleteMovimientoInventario);
+router.post('/api/movimientos-inventario/ajustes', authorizeModule('Movimientos'), movimientoInventarioController.crearAjuste);
 
 module.exports = router;

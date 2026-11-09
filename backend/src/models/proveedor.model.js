@@ -1,116 +1,138 @@
 const pool = require('../config/database');
+const { getColumnMetadata } = require('../utils/mysqlEnum');
 
 async function getAllProveedores() {
-  const [rows] = await pool.query('SELECT * FROM proveedores ORDER BY id_proveedor ASC');
+  const [rows] = await pool.query(
+    `SELECT id, codigo, nombre, telefono, correo, direccion,
+            plazo_entrega_dias, activo, creado_en, actualizado_en
+     FROM proveedores ORDER BY nombre ASC`
+  );
   return rows;
 }
 
-async function getProveedorById(id) {
-  const [rows] = await pool.query('SELECT * FROM proveedores WHERE id_proveedor = ?', [id]);
+async function getProveedorById(id, executor = pool) {
+  const [rows] = await executor.query(
+    `SELECT id, codigo, nombre, telefono, correo, direccion,
+            plazo_entrega_dias, activo, creado_en, actualizado_en
+     FROM proveedores WHERE id = ?`,
+    [id]
+  );
   return rows[0] || null;
 }
 
 async function createProveedor(data) {
-  const {
-    nombre,
-    contacto,
-    telefono,
-    email,
-    direccion,
-    documento_identidad,
-    estado,
-  } = data;
-
   const [result] = await pool.query(
     `INSERT INTO proveedores (
-      nombre,
-      contacto,
-      telefono,
-      email,
-      direccion,
-      documento_identidad,
-      estado
+      codigo, nombre, telefono, correo, direccion, plazo_entrega_dias, activo
     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
-      nombre,
-      contacto ?? null,
-      telefono ?? null,
-      email ?? null,
-      direccion ?? null,
-      documento_identidad ?? null,
-      estado ?? 'activo',
+      data.codigo,
+      data.nombre,
+      data.telefono ?? null,
+      data.correo ?? null,
+      data.direccion ?? null,
+      data.plazo_entrega_dias,
+      data.activo === undefined ? 1 : (data.activo ? 1 : 0),
     ]
   );
-
-  return {
-    id_proveedor: result.insertId,
-    nombre,
-    contacto: contacto ?? null,
-    telefono: telefono ?? null,
-    email: email ?? null,
-    direccion: direccion ?? null,
-    documento_identidad: documento_identidad ?? null,
-    estado: estado ?? 'activo',
-  };
+  return getProveedorById(result.insertId);
 }
 
 async function updateProveedor(id, data) {
   const fields = [];
   const values = [];
-
-  if (data.nombre !== undefined) {
-    fields.push('nombre = ?');
-    values.push(data.nombre);
+  for (const field of ['codigo', 'nombre', 'telefono', 'correo', 'direccion', 'plazo_entrega_dias', 'activo']) {
+    if (data[field] !== undefined) {
+      fields.push(`${field} = ?`);
+      values.push(field === 'activo' ? (data[field] ? 1 : 0) : data[field]);
+    }
   }
-
-  if (data.contacto !== undefined) {
-    fields.push('contacto = ?');
-    values.push(data.contacto);
-  }
-
-  if (data.telefono !== undefined) {
-    fields.push('telefono = ?');
-    values.push(data.telefono);
-  }
-
-  if (data.email !== undefined) {
-    fields.push('email = ?');
-    values.push(data.email);
-  }
-
-  if (data.direccion !== undefined) {
-    fields.push('direccion = ?');
-    values.push(data.direccion);
-  }
-
-  if (data.documento_identidad !== undefined) {
-    fields.push('documento_identidad = ?');
-    values.push(data.documento_identidad);
-  }
-
-  if (data.estado !== undefined) {
-    fields.push('estado = ?');
-    values.push(data.estado);
-  }
-
-  if (fields.length === 0) {
-    return null;
-  }
-
-  fields.push('fecha_actualizacion = CURRENT_TIMESTAMP');
+  if (!fields.length) return false;
   values.push(id);
-
-  await pool.query(
-    `UPDATE proveedores SET ${fields.join(', ')} WHERE id_proveedor = ?`,
+  const [result] = await pool.query(
+    `UPDATE proveedores SET ${fields.join(', ')} WHERE id = ?`,
     values
   );
-
-  return true;
+  return result.affectedRows > 0;
 }
 
-async function deleteProveedor(id) {
-  const [result] = await pool.query('DELETE FROM proveedores WHERE id_proveedor = ?', [id]);
-  return result;
+async function desactivarProveedor(id) {
+  const [result] = await pool.query('UPDATE proveedores SET activo = 0 WHERE id = ?', [id]);
+  return result.affectedRows > 0;
+}
+
+async function getDiasPedidoProveedor(proveedorId) {
+  const [rows] = await pool.query(
+    'SELECT dia_semana FROM dias_pedido_proveedor WHERE proveedor_id = ? ORDER BY dia_semana',
+    [proveedorId]
+  );
+  return rows.map(({ dia_semana }) => dia_semana);
+}
+
+async function setDiasPedidoProveedor(proveedorId, dias) {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const { columnType, enumValues } = await getColumnMetadata(
+      connection,
+      'dias_pedido_proveedor',
+      'dia_semana'
+    );
+    let normalizedDays;
+    if (enumValues) {
+      if (dias.some((dia) => !enumValues.includes(String(dia)))) {
+        throw Object.assign(new Error('Uno o más días no están permitidos'), {
+          code: 'INVALID_DAY_VALUE',
+        });
+      }
+      normalizedDays = dias.map(String);
+    } else {
+      const integerType = /^(tinyint|smallint|mediumint|int|integer|bigint)(?:\(\d+\))?( unsigned)?$/i.exec(columnType);
+      if (!integerType) {
+        throw Object.assign(new Error('No se pudo determinar el rango permitido para dia_semana'), {
+          code: 'SCHEMA_TYPE_UNSUPPORTED',
+        });
+      }
+      const bitWidths = { tinyint: 8n, smallint: 16n, mediumint: 24n, int: 32n, integer: 32n, bigint: 64n };
+      const bitWidth = bitWidths[integerType[1].toLowerCase()];
+      const unsigned = Boolean(integerType[2]);
+      const minimum = unsigned ? 0n : -(1n << (bitWidth - 1n));
+      const maximum = unsigned ? (1n << bitWidth) - 1n : (1n << (bitWidth - 1n)) - 1n;
+      if (dias.some((dia) => !/^\d+$/.test(String(dia).trim()) ||
+          BigInt(String(dia).trim()) < minimum || BigInt(String(dia).trim()) > maximum)) {
+        throw Object.assign(new Error('Uno o más días no caben en la columna dia_semana'), {
+          code: 'INVALID_DAY_VALUE',
+        });
+      }
+      normalizedDays = dias.map((dia) => BigInt(String(dia).trim()).toString());
+    }
+    if (new Set(normalizedDays).size !== normalizedDays.length) {
+      throw Object.assign(new Error('La lista de días contiene valores repetidos'), {
+        code: 'INVALID_DAY_VALUE',
+      });
+    }
+    const [providers] = await connection.query(
+      'SELECT id FROM proveedores WHERE id = ? FOR UPDATE',
+      [proveedorId]
+    );
+    if (!providers[0]) {
+      throw Object.assign(new Error('Proveedor no encontrado'), { code: 'PROVIDER_NOT_FOUND' });
+    }
+    await connection.query('DELETE FROM dias_pedido_proveedor WHERE proveedor_id = ?', [proveedorId]);
+    for (const dia of normalizedDays) {
+      await connection.query(
+        'INSERT INTO dias_pedido_proveedor (proveedor_id, dia_semana) VALUES (?, ?)',
+        [proveedorId, dia]
+      );
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+  return getDiasPedidoProveedor(proveedorId);
 }
 
 module.exports = {
@@ -118,5 +140,7 @@ module.exports = {
   getProveedorById,
   createProveedor,
   updateProveedor,
-  deleteProveedor,
+  desactivarProveedor,
+  getDiasPedidoProveedor,
+  setDiasPedidoProveedor,
 };

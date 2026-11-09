@@ -9,8 +9,6 @@ import Movimientos from "./pages/Movimientos";
 import Ventas from "./pages/Ventas";
 import Compras from "./pages/Compras";
 import Proveedores from "./pages/Proveedores";
-import Usuarios from "./pages/Usuarios";
-import Roles from "./pages/Roles";
 import Reportes from "./pages/Reportes";
 import Predicciones from "./pages/Predicciones";
 
@@ -41,9 +39,6 @@ function App() {
         <Route path="/ventas" element={<Ventas />} />
         <Route path="/compras" element={<Compras />} />
         <Route path="/proveedores" element={<Proveedores />} />
-
-        <Route path="/usuarios" element={<Usuarios />} />
-        <Route path="/roles" element={<Roles />} />
 
         <Route path="/reportes" element={<Reportes />} />
         <Route path="/predicciones" element={<Predicciones />} />

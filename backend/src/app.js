@@ -5,17 +5,17 @@ const authRoutes = require('./routes/auth.routes');
 const categoriaRoutes = require('./routes/categoria.routes');
 const productoRoutes = require('./routes/producto.routes');
 const inventarioRoutes = require('./routes/inventario.routes');
-const rolRoutes = require('./routes/rol.routes');
 const prediccionRoutes = require('./routes/prediccion.routes');
 const proveedorRoutes = require('./routes/proveedor.routes');
 const compraRoutes = require('./routes/compra.routes');
-const usuarioRoutes = require('./routes/usuario.routes');
+const compraController = require('./controllers/compra.controller');
 const detalleCompraRoutes = require('./routes/detalle_compra.routes');
 const ventaRoutes = require('./routes/venta.routes');
 const detalleVentaRoutes = require('./routes/detalle_venta.routes');
 const movimientoInventarioRoutes = require('./routes/movimiento_inventario.routes');
 const reportesRoutes = require('./routes/reportes.routes');
 const authMiddleware = require('./middleware/authMiddleware');
+const dashboardController = require('./controllers/dashboard.controller');
 
 const app = express();
 
@@ -40,14 +40,15 @@ app.get('/api/health', async (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use(reportesRoutes);
 app.use(authMiddleware);
+app.get('/api/dashboard', dashboardController.getDashboard);
 app.use(categoriaRoutes);
 app.use(productoRoutes);
 app.use(inventarioRoutes);
-app.use(rolRoutes);
 app.use(prediccionRoutes);
 app.use('/api/proveedores', proveedorRoutes);
 app.use('/api/compras', compraRoutes);
-app.use(usuarioRoutes);
+app.get('/api/recepciones', compraController.getAllRecepciones);
+app.get('/api/recepciones/:id', compraController.getRecepcionById);
 app.use(detalleCompraRoutes);
 app.use(ventaRoutes);
 app.use(detalleVentaRoutes);

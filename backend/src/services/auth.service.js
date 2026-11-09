@@ -1,87 +1,42 @@
 const bcrypt = require('bcryptjs');
 const usuarioModel = require('../models/usuario.model');
-const rolModel = require('../models/rol.model');
 const { signToken } = require('../utils/jwt');
 
-function buildSafeUserProfile(usuario, role) {
+function perfilSeguro(usuario) {
   return {
-    id_usuario: usuario.id_usuario,
-    rol_id: usuario.rol_id,
+    id: usuario.id,
+    nombre_usuario: usuario.nombre_usuario,
     nombre: usuario.nombre,
-    apellido: usuario.apellido,
-    username: usuario.username,
-    email: usuario.email,
-    estado: usuario.estado,
-    ultimo_acceso: usuario.ultimo_acceso,
-    fecha_creacion: usuario.fecha_creacion,
-    fecha_actualizacion: usuario.fecha_actualizacion,
-    rol: role
-      ? {
-          id_rol: role.id_rol,
-          nombre: role.nombre,
-          estado: role.estado,
-        }
-      : null,
+    debe_cambiar_clave: Boolean(usuario.debe_cambiar_clave),
   };
 }
 
-async function login({ username, email, password }) {
-  if ((!username && !email) || !password) {
-    throw {
-      status: 400,
-      message: 'Se requiere username o email y password',
-    };
+async function login({ nombre_usuario, password }) {
+  if (!nombre_usuario || !password) {
+    throw Object.assign(new Error('Se requiere nombre_usuario y password'), { status: 400 });
   }
-
-  const user = await usuarioModel.findByUsernameOrEmail(username, email);
-
-  if (!user || !user.password_hash) {
-    throw {
-      status: 401,
-      message: 'Credenciales inválidas',
-    };
+  const usuario = await usuarioModel.findByNombreUsuario(nombre_usuario);
+  if (!usuario || !(await bcrypt.compare(password, usuario.clave_hash))) {
+    throw Object.assign(new Error('Credenciales inválidas'), { status: 401 });
   }
-
-  const passwordMatches = await bcrypt.compare(password, user.password_hash);
-
-  if (!passwordMatches) {
-    throw {
-      status: 401,
-      message: 'Credenciales inválidas',
-    };
-  }
-
-  if (user.estado !== 'activo') {
-    throw {
-      status: 401,
-      message: 'Usuario no autorizado',
-    };
-  }
-
-  const role = await rolModel.getRolById(user.rol_id);
-
-  if (!role) {
-    throw {
-      status: 401,
-      message: 'Usuario no autorizado',
-    };
-  }
-
-  const token = signToken({
-    id_usuario: user.id_usuario,
-    username: user.username,
-    email: user.email,
-    rol_id: user.rol_id,
-    rol_nombre: role.nombre,
-    estado: user.estado,
-  });
-
+  const user = perfilSeguro(usuario);
   return {
-    token,
-    user: buildSafeUserProfile(user, role),
+    token: signToken({ id: String(usuario.id), nombre_usuario: usuario.nombre_usuario }),
+    user,
   };
 }
 
-module.exports = {
-  login,
-};
+async function cambiarClave(id, claveActual, claveNueva) {
+  if (typeof claveNueva !== 'string' || claveNueva.length < 8) {
+    throw Object.assign(new Error('La nueva clave debe tener al menos 8 caracteres'), { status: 400 });
+  }
+  const usuario = await usuarioModel.getUsuarioConClaveById(id);
+  if (!usuario || !(await bcrypt.compare(claveActual || '', usuario.clave_hash))) {
+    throw Object.assign(new Error('La clave actual no es válida'), { status: 401 });
+  }
+  const hash = await bcrypt.hash(claveNueva, 10);
+  await usuarioModel.updateClave(id, hash);
+  return { message: 'Clave actualizada' };
+}
+
+module.exports = { login, cambiarClave, perfilSeguro };
