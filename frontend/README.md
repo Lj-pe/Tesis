@@ -1,6 +1,6 @@
-# Frontend — Boutique Librería Bazar Alanis
+# Frontend — Minimarket
 
-Aplicación web para la interfaz del sistema de gestión de Boutique Librería Bazar Alanis.
+Aplicación web React para el sistema de gestión del minimarket.
 
 ## Tecnologías
 
@@ -41,6 +41,7 @@ registrado, junto con la contraseña.
 - Inventario y Movimientos
 - Ventas y Compras
 - Proveedores
-- Usuarios y Roles
 - Reportes
 - Predicciones
+
+La predicción consume la API autenticada del backend y permanece en modo sombra.

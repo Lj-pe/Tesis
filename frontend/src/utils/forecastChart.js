@@ -76,6 +76,15 @@ function aggregateDailySalesByPeriod(dailyHistory, periodCount, historyWindow) {
     const salesInPeriod = dailyHistory.filter(({ sale_date }) =>
       sale_date >= periodStart && sale_date <= periodEnd
     );
+    const coverageIsExplicit = historyWindow?.require_complete_periods === true
+      || dailyHistory.some((row) => row.observability_checked === true);
+    const expectedDays = Math.round(
+      (new Date(`${periodEnd}T00:00:00Z`) - new Date(`${periodStart}T00:00:00Z`))
+      / 86400000
+    ) + 1;
+    if (coverageIsExplicit && salesInPeriod.length !== expectedDays) {
+      return [];
+    }
 
     return [{
       key: periodStart,

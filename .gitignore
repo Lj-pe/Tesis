@@ -1,13 +1,19 @@
-@"
 # Dependencias
 node_modules/
 frontend/node_modules/
 frontend_backup/node_modules/
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+**/.pytest_cache/
 
 # Builds
 dist/
 frontend/dist/
 frontend_backup/dist/
+coverage/
 
 # Variables de entorno
 .env
@@ -23,4 +29,3 @@ frontend_backup/
 # Archivos del sistema
 .DS_Store
 Thumbs.db
-"@ | Set-Content .gitignore

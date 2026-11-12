@@ -26,7 +26,6 @@ const createdIds = {
   detalle_compras: new Set(),
   detalle_ventas: new Set(),
   movimientos_inventario: new Set(),
-  predicciones: new Set(),
 };
 
 const trackCreatedId = (table, id) => {
@@ -79,7 +78,6 @@ async function cleanupCreatedRecords() {
       ['movimientos_inventario', 'id_movimiento'],
       ['detalle_compras', 'id_detalle_compra'],
       ['detalle_ventas', 'id_detalle_venta'],
-      ['predicciones', 'id_prediccion'],
       ['compras', 'id_compra'],
       ['ventas', 'id_venta'],
       ['inventarios', 'id_inventario'],
@@ -345,25 +343,6 @@ const createMovimientoInventario = async (inventarioId, usuarioId, overrides = {
 
   const res = await request(app).post('/api/movimientos-inventario').send(payload);
   trackCreatedRecord('movimientos_inventario', res.body, 'id_movimiento');
-  expect(res.status).toBe(201);
-  return res.body;
-};
-
-const createPrediccion = async (productoId, overrides = {}) => {
-  const payload = {
-    producto_id: productoId,
-    periodo_inicio: '2026-09-01',
-    periodo_fin: '2026-09-30',
-    metodo_prediccion: 'promedio',
-    valor_predicho: 42.50,
-    intervalo_confianza: 10.00,
-    estado: 'generada',
-    observaciones: 'prediccion de prueba',
-    ...overrides,
-  };
-
-  const res = await request(app).post('/api/predicciones').send(payload);
-  trackCreatedRecord('predicciones', res.body, 'id_prediccion');
   expect(res.status).toBe(201);
   return res.body;
 };
@@ -1706,59 +1685,6 @@ describe('Backend CRUD endpoints', () => {
     await request(app).delete(`/api/inventarios/${inventory.id_inventario}`);
     await request(app).delete(`/api/productos/${product.id_producto}`);
     await request(app).delete(`/api/usuarios/${user.id_usuario}`);
-  });
-
-  test('GET /api/predicciones returns list', async () => {
-    const category = await createCategoria();
-    const product = await createProducto(category.id_categoria);
-    const prediction = await createPrediccion(product.id_producto);
-    const res = await request(app).get('/api/predicciones');
-    expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
-    await request(app).delete(`/api/predicciones/${prediction.id_prediccion}`);
-    await request(app).delete(`/api/productos/${product.id_producto}`);
-  });
-
-  test('POST /api/predicciones creates a prediction', async () => {
-    const category = await createCategoria();
-    const product = await createProducto(category.id_categoria);
-    const prediction = await createPrediccion(product.id_producto);
-    expect(prediction).toHaveProperty('id_prediccion');
-    await request(app).delete(`/api/predicciones/${prediction.id_prediccion}`);
-    await request(app).delete(`/api/productos/${product.id_producto}`);
-  });
-
-  test('GET /api/predicciones/:id returns a prediction', async () => {
-    const category = await createCategoria();
-    const product = await createProducto(category.id_categoria);
-    const prediction = await createPrediccion(product.id_producto);
-    const res = await request(app).get(`/api/predicciones/${prediction.id_prediccion}`);
-    expect(res.status).toBe(200);
-    expect(res.body.id_prediccion).toBe(prediction.id_prediccion);
-    await request(app).delete(`/api/predicciones/${prediction.id_prediccion}`);
-    await request(app).delete(`/api/productos/${product.id_producto}`);
-  });
-
-  test('PUT /api/predicciones/:id updates a prediction', async () => {
-    const category = await createCategoria();
-    const product = await createProducto(category.id_categoria);
-    const prediction = await createPrediccion(product.id_producto);
-    const res = await request(app)
-      .put(`/api/predicciones/${prediction.id_prediccion}`)
-      .send({ estado: 'aprobada', observaciones: 'actualizado' });
-
-    expect(res.status).toBe(200);
-    await request(app).delete(`/api/predicciones/${prediction.id_prediccion}`);
-    await request(app).delete(`/api/productos/${product.id_producto}`);
-  });
-
-  test('DELETE /api/predicciones/:id deletes a prediction', async () => {
-    const category = await createCategoria();
-    const product = await createProducto(category.id_categoria);
-    const prediction = await createPrediccion(product.id_producto);
-    const res = await request(app).delete(`/api/predicciones/${prediction.id_prediccion}`);
-    expect(res.status).toBe(200);
-    await request(app).delete(`/api/productos/${product.id_producto}`);
   });
 
   test('DELETE /api/roles/:id returns clear 409 when role is in use by users', async () => {

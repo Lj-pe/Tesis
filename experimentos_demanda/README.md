@@ -91,8 +91,9 @@ La configuración fija Python 3.13 compatible con ruedas de Windows AMD64:
 - `scikit-learn==1.7.2`
 - `joblib==1.5.2`
 - `threadpoolctl==3.6.0`
+- `matplotlib==3.10.7`
 
-Ridge y MAE están disponibles en `scikit-learn`; las otras cuatro bibliotecas son dependencias de ejecución requeridas por scikit-learn. La etapa no requiere pandas. El entorno virtual es local a esta carpeta y queda excluido por su `.gitignore`; no afecta paquetes globales ni dependencias de Node.js.
+Ridge y MAE están disponibles en `scikit-learn`; `joblib` y `threadpoolctl` son dependencias de ejecución de scikit-learn. `matplotlib` se usa para los gráficos de los experimentos. La etapa no requiere pandas. El entorno virtual es local a esta carpeta y queda excluido por su `.gitignore`; no afecta paquetes globales ni dependencias de Node.js.
 
 Desde la raíz del repositorio, en Windows PowerShell:
 

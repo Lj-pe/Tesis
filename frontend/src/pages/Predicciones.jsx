@@ -343,7 +343,16 @@ function Predicciones() {
     (item) => String(item.id_categoria) === String(selectedProduct?.categoria_id)
   );
   const prediction = forecastData?.prediction;
-  const forecastDateRange = getForecastDateRange(period);
+  const forecastStartDate = forecastData?.target_range?.firstDate;
+  const forecastDateRange = getForecastDateRange(
+    period,
+    forecastStartDate
+      ? (() => {
+          const [year, month, day] = forecastStartDate.split("-").map(Number);
+          return new Date(year, month - 1, day);
+        })()
+      : new Date()
+  );
   const matchingProducts = filteredProducts.filter((product) =>
     String(product.nombre || "").toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())
   );
@@ -583,27 +592,11 @@ function Predicciones() {
             </div>
 
             <p className="prediction-empty-result" role="status">
-              El histórico refleja ventas pagadas registradas. Los períodos sin registros se
-              muestran con cero; esto no confirma que la demanda haya sido nula.
+              Solo se consideran días con disponibilidad positiva durante toda la jornada.
+              Los días censurados se excluyen y no se interpretan como ventas cero. El corte
+              utilizado es {formatearFecha(forecastData.cutoff_date)}; el modelo está en modo
+              sombra.
             </p>
-
-            {prediction.training_weeks === 0 ? (
-              <p className="prediction-empty-result" role="status">
-                No hay semanas completas disponibles para calcular el pronóstico. Se muestra
-                cero por falta de historial; esto no significa que la demanda sea nula.
-              </p>
-            ) : prediction.history_insufficient && (
-              <p className="prediction-empty-result" role="status">
-                Historial limitado: {prediction.positive_training_weeks} de{" "}
-                {prediction.training_weeks} semanas completas tienen ventas pagadas registradas.
-                {" "}
-                {period === 30
-                  ? "Al no alcanzar ocho semanas positivas, se aplica el promedio móvil-4 como fallback."
-                  : "Este horizonte usa el promedio móvil-4 por política."}
-                {" "}El pronóstico se basa en las últimas cuatro semanas disponibles y puede ser
-                poco representativo; los períodos sin registros no confirman demanda nula.
-              </p>
-            )}
 
             <div className="prediction-metric-grid">
               <article className="prediction-metric-card">
@@ -662,7 +655,7 @@ function Predicciones() {
                         : "Sin riesgo"}
                   </strong>
                   {forecastData.risk === null && (
-                    <small>Requiere inventario y stock mínimo configurados</small>
+                    <small>No se ha aprobado una política de riesgo de inventario</small>
                   )}
                 </div>
               </article>
@@ -683,7 +676,7 @@ function Predicciones() {
                   </strong>
                   <small>
                     {forecastData.suggested_replenishment === null
-                      ? "No calculable con los datos de inventario"
+                      ? forecastData.replenishment_unavailable_reason
                       : selectedInventory?.stock_maximo === null
                         ? "unidades; sin límite máximo configurado"
                         : "unidades; limitada por stock máximo"}
@@ -701,8 +694,8 @@ function Predicciones() {
                   <h3 id="prediction-chart-heading">Ventas históricas y predicción</h3>
                   <p>
                     Histórico: {period === 30
-                      ? "periodos mensuales (ventas semanales agrupadas)"
-                      : "semanas completas"}
+                      ? "periodos mensuales completos y observables"
+                      : "semanas completas y observables"}
                     {" · "}
                     {selectedHistoryRange
                       ? `${formatearFecha(selectedHistoryRange.first)} – ${formatearFecha(selectedHistoryRange.last)}`
@@ -717,6 +710,11 @@ function Predicciones() {
                 period={period}
                 forecastDateRange={forecastDateRange}
               />
+              {selectedHistory.length === 0 && (
+                <p className="prediction-empty-result" role="status">
+                  No hay períodos históricos completamente observables para mostrar.
+                </p>
+              )}
             </section>
 
             <div className="prediction-model-info">
@@ -725,22 +723,23 @@ function Predicciones() {
                   <path d="M12 3v2m0 14v2M3 12h2m14 0h2m-15.4-6.4 1.4 1.4m10 10 1.4 1.4m0-12.8L17 7m-10 10-1.4 1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                 </svg>
               </span>
-              <span>
-                <strong>Método:</strong>{" "}
-                {prediction.selected_method === "croston_sba"
-                  ? "Croston-SBA (α=0.1)"
-                  : "Promedio móvil-4"}
-              </span>
+              <span><strong>Método:</strong> {prediction.selected_method}</span>
+              <span><strong>Segmento:</strong> {prediction.segment}</span>
+              <span><strong>Versión:</strong> {prediction.model_version} (sombra)</span>
               <span><strong>MAE:</strong> Pendiente de evaluación</span>
               <span>
-                <strong>Historial analizado:</strong>{" "}
-                {prediction.training_weeks} semanas completas
+                <strong>Historial visible:</strong>{" "}
+                {prediction.history_weeks} semanas completas
                 {" · "}
-                {prediction.positive_training_weeks} con ventas
+                {prediction.positive_history_weeks} con ventas
                 {" · "}
                 {selectedHistoryRange
                   ? `${formatearFecha(selectedHistoryRange.first)} – ${formatearFecha(selectedHistoryRange.last)}`
                   : "Sin semanas completas"}
+              </span>
+              <span>
+                <strong>Días observables en el historial:</strong>{" "}
+                {prediction.observed_days}
               </span>
               <span><strong>Horizonte:</strong> {period} días</span>
             </div>

@@ -158,6 +158,38 @@ test("muestra los seis periodos en cero si no hay ventas registradas en la venta
   assert.equal(chart.forecast, 12);
 });
 
+test("no representa un periodo parcial como ventas cero cuando la cobertura es explícita", () => {
+  const dailyHistory = [];
+  for (
+    let date = new Date("2026-05-06T00:00:00Z");
+    date <= new Date("2026-06-05T00:00:00Z");
+    date.setUTCDate(date.getUTCDate() + 1)
+  ) {
+    const sale_date = date.toISOString().slice(0, 10);
+    if (sale_date !== "2026-05-20") {
+      dailyHistory.push({
+        sale_date,
+        demand_units: 0,
+        observability_checked: true,
+      });
+    }
+  }
+
+  const chart = prepareForecastChartData(
+    [],
+    30,
+    12,
+    {
+      firstDate: "2026-05-06",
+      lastDate: "2026-11-06",
+      require_complete_periods: true,
+    },
+    dailyHistory
+  );
+
+  assert.deepEqual(chart.history, []);
+});
+
 test("un pronóstico cero tiene marcador visible y etiqueta accesible", () => {
   assert.deepEqual(getZeroForecastMarker(0, 500, 143), {
     cx: 500,
